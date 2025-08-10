@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
+    <title>Outdoor Adventure - Skeleton Key Quest</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: #2d5016;
+        }
+        
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, #4a7c59, #6b8e23);
+            touch-action: none;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10;
+        }
+        
+        #keys {
+            background: rgba(0,0,0,0.7);
+            padding: 10px 15px;
+            border-radius: 20px;
+            border: 2px solid #FFD700;
+        }
+        
+        #powers {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .power-btn {
+            padding: 8px 12px;
+            border: 2px solid;
+            border-radius: 15px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 12px;
+        }
+        
+        .power-btn:hover {
+            transform: scale(1.1);
+        }
+        
+        .power-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .power-btn.cooldown {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        #ice-btn {
+            border-color: #00BFFF;
+            color: #00BFFF;
+        }
+        
+        #fire-btn {
+            border-color: #FF4500;
+            color: #FF4500;
+        }
+        
+        #combined-btn {
+            border-color: #9932CC;
+            color: #9932CC;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            text-align: center;
+        }
+        
+        /* Touch Controls */
+        #touchControls {
+            position: absolute;
+            bottom: 160px;
+            right: 20px;
+            z-index: 20;
+            display: block;
+        }
+        
+        #arrowKeys {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 8px;
+            width: 180px;
+            height: 120px;
+        }
+        
+        .arrow-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(0,0,0,0.8);
+            border: 4px solid #4169E1;
+            border-radius: 15px;
+            color: white;
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+        }
+        
+        .arrow-btn:active {
+            background: rgba(65, 105, 225, 0.9);
+            transform: scale(0.9);
+        }
+        
+        .arrow-btn.up { grid-column: 2; grid-row: 1; }
+        .arrow-btn.left { grid-column: 1; grid-row: 2; }
+        .arrow-btn.right { grid-column: 3; grid-row: 2; }
+        .arrow-btn.down { grid-column: 2; grid-row: 2; }
+        
+        #touchPowers {
+            position: absolute;
+            bottom: 160px;
+            left: 20px;
+            z-index: 20;
+            display: block;
+        }
+        
+        .touch-power-btn {
+            width: 70px;
+            height: 70px;
+            margin: 8px;
+            border: 4px solid;
+            border-radius: 18px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+        }
+        
+        .touch-power-btn:active {
+            transform: scale(0.9);
+        }
+        
+        .touch-power-btn.selected {
+            background: rgba(255,255,255,0.2);
+            transform: scale(1.1);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+        }
+        
+        .touch-power-btn.cooldown {
+            opacity: 0.5;
+        }
+        
+        #touch-ice-btn {
+            border-color: #00BFFF;
+        }
+        
+        #touch-fire-btn {
+            border-color: #FF4500;
+        }
+        
+        #touch-combined-btn {
+            border-color: #9932CC;
+        }
+        
+        /* Menu Styles */
+        #homeScreen, #instructionsScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        
+        .menu-container {
+            background: rgba(0,0,0,0.8);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 500px;
+            border: 3px solid #4169E1;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        
+        .menu-container h1 {
+            color: #FFD700;
+            font-size: 36px;
+            margin: 0 0 10px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+        
+        .menu-container h2 {
+            color: #87CEEB;
+            font-size: 24px;
+            margin: 0 0 20px 0;
+        }
+        
+        .menu-container p {
+            color: white;
+            font-size: 16px;
+            margin: 0 0 30px 0;
+        }
+        
+        .menu-btn {
+            background: linear-gradient(45deg, #4169E1, #87CEEB);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            margin: 10px;
+            border-radius: 15px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .menu-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
+        
+        .menu-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .instructions-content {
+            text-align: left;
+            margin: 20px 0;
+            color: white;
+        }
+        
+        .instructions-content h3 {
+            color: #FFD700;
+            margin: 15px 0 5px 0;
+        }
+        
+        .instructions-content p {
+            margin: 5px 0 15px 0;
+            font-size: 14px;
+        }
+        
+        /* Show touch controls on touch devices and tablets */
+        @media (max-width: 1024px), (pointer: coarse) {
+            #touchControls, #touchPowers {
+                display: block;
+            }
+            
+            #instructions {
+                bottom: 150px;
+                font-size: 11px;
+                left: 20px;
+                right: 20px;
+            }
+            
+            .menu-container {
+                margin: 20px;
+                padding: 30px;
+            }
+            
+            .menu-container h1 {
+                font-size: 28px;
+            }
+            
+            .menu-container h2 {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Home Screen -->
+    <div id="homeScreen">
+        <div class="menu-container">
+            <h1>🎮 Outdoor Adventure</h1>
+            <h2>Skeleton Key Quest</h2>
+            <p>Explore 33 rooms, collect keys, defeat enemies!</p>
+            <button id="startGameBtn" class="menu-btn">🚀 Start Game</button>
+            <button id="instructionsBtn" class="menu-btn">📖 How to Play</button>
+        </div>
+    </div>
+
+    <!-- Instructions Screen -->
+    <div id="instructionsScreen" style="display: none;">
+        <div class="menu-container">
+            <h1>📖 How to Play</h1>
+            <div class="instructions-content">
+                <h3>🎯 Objective:</h3>
+                <p>Collect all 33 skeleton keys by exploring rooms and defeating enemies!</p>
+                
+                <h3>🎮 Controls:</h3>
+                <p><strong>Desktop:</strong> WASD to move, Mouse to aim and shoot</p>
+                <p><strong>iPad/Mobile:</strong> Arrow keys to move, select power then tap screen to shoot</p>
+                
+                <h3>⚡ Powers:</h3>
+                <p>❄️ Ice Beam | 🔥 Fire Beam | ⚡ Combined Beam</p>
+                
+                <h3>💎 Power-ups:</h3>
+                <p>❤️ Health | ⚡ Speed | 💥 Damage | 🛡️ Shield | 🚀 Mega Speed | ⭐ Invincibility</p>
+            </div>
+            <button id="backToMenuBtn" class="menu-btn">← Back to Menu</button>
+        </div>
+    </div>
+
+    <!-- Game Container -->
+    <div id="gameContainer" style="display: none;">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui">
+            <div id="keys">🔑 Skeleton Keys: <span id="keyCount">0</span></div>
+            <div id="powers">
+                <button id="ice-btn" class="power-btn">❄️ Ice Beam</button>
+                <button id="fire-btn" class="power-btn">🔥 Fire Beam</button>
+                <button id="combined-btn" class="power-btn">⚡ Combined</button>
+            </div>
+        </div>
+        
+        <div id="instructions">
+            WASD/Arrow Keys to move | Left Click: Ice | Right Click: Fire | Both: Combined | Touch: Select power (left) then tap screen to shoot!
+        </div>
+        
+        <!-- Touch Controls -->
+        <div id="touchControls">
+            <div id="arrowKeys">
+                <button class="arrow-btn up" id="up-btn">↑</button>
+                <button class="arrow-btn left" id="left-btn">←</button>
+                <button class="arrow-btn right" id="right-btn">→</button>
+                <button class="arrow-btn down" id="down-btn">↓</button>
+            </div>
+        </div>
+        
+        <div id="touchPowers">
+            <button id="touch-ice-btn" class="touch-power-btn">❄️</button>
+            <button id="touch-fire-btn" class="touch-power-btn">🔥</button>
+            <button id="touch-combined-btn" class="touch-power-btn">⚡</button>
+        </div>
+    </div>
+    
+    <script src="game.js"></script>
+</body>
+</html>
