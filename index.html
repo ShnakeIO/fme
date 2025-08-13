@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
-    <title>Outdoor Adventure - Skeleton Key Quest</title>
+    <title>Fightin Mortal Enemies</title>
     <style>
         body {
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            background: linear-gradient(135deg, #000000, #1a1a1a);
             font-family: 'Arial', sans-serif;
             overflow: hidden;
         }
@@ -210,7 +210,7 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            background: linear-gradient(135deg, #000000, #1a1a1a);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -218,13 +218,13 @@
         }
         
         .menu-container {
-            background: rgba(0,0,0,0.8);
+            background: linear-gradient(135deg, #1a1a1a, #000000);
             padding: 40px;
             border-radius: 20px;
             text-align: center;
-            max-width: 500px;
-            border: 3px solid #4169E1;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            max-width: 600px;
+            border: 3px solid #FFD700;
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
         }
         
         .menu-container h1 {
@@ -235,7 +235,7 @@
         }
         
         .menu-container h2 {
-            color: #87CEEB;
+            color: #FFA500;
             font-size: 24px;
             margin: 0 0 20px 0;
         }
@@ -247,21 +247,23 @@
         }
         
         .menu-btn {
-            background: linear-gradient(45deg, #4169E1, #87CEEB);
-            color: white;
-            border: none;
+            background: linear-gradient(45deg, #FFD700, #FFA500);
+            color: #000000;
+            border: 2px solid #FFD700;
             padding: 15px 30px;
             margin: 10px;
             border-radius: 15px;
             font-size: 18px;
+            font-weight: bold;
             cursor: pointer;
             transition: all 0.3s ease;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
         }
         
         .menu-btn:hover {
             transform: scale(1.05);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            box-shadow: 0 8px 20px rgba(255, 215, 0, 0.6);
+            background: linear-gradient(45deg, #FFA500, #FFD700);
         }
         
         .menu-btn:active {
@@ -278,12 +280,249 @@
             color: #FFD700;
             margin: 15px 0 5px 0;
         }
+
+        /* What's New Banner */
+        .whats-new-banner {
+            background: linear-gradient(45deg, #FFD700, #FFA500);
+            color: #000000;
+            padding: 15px;
+            margin: 0 0 20px 0;
+            border-radius: 10px;
+            border: 2px solid #FFD700;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+            animation: bannerGlow 2s infinite alternate;
+        }
+
+        @keyframes bannerGlow {
+            from { box-shadow: 0 0 15px rgba(255, 215, 0, 0.5); }
+            to { box-shadow: 0 0 25px rgba(255, 215, 0, 0.8); }
+        }
+
+        .whats-new-banner h3 {
+            margin: 0 0 10px 0;
+            font-size: 20px;
+            font-weight: bold;
+            color: #000000;
+        }
+
+        .whats-new-banner ul {
+            margin: 0;
+            padding-left: 20px;
+            text-align: left;
+        }
+
+        .whats-new-banner li {
+            margin: 5px 0;
+            font-size: 14px;
+            font-weight: bold;
+        }
         
         .instructions-content p {
             margin: 5px 0 15px 0;
             font-size: 14px;
         }
         
+        /* Boss Fight Dialog */
+        #bossDialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+        
+        .boss-dialog-container {
+            background: linear-gradient(135deg, #8B0000, #DC143C);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 600px;
+            border: 4px solid #FFD700;
+            box-shadow: 0 0 50px rgba(255,215,0,0.8);
+            animation: pulseGlow 2s infinite alternate;
+        }
+        
+        @keyframes pulseGlow {
+            from { box-shadow: 0 0 50px rgba(255,215,0,0.8); }
+            to { box-shadow: 0 0 80px rgba(255,215,0,1.0); }
+        }
+        
+        .boss-dialog-container h1 {
+            color: #FFD700;
+            font-size: 42px;
+            margin: 0 0 20px 0;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.8);
+            animation: textGlow 1.5s infinite alternate;
+        }
+        
+        @keyframes textGlow {
+            from { text-shadow: 3px 3px 6px rgba(0,0,0,0.8), 0 0 20px #FFD700; }
+            to { text-shadow: 3px 3px 6px rgba(0,0,0,0.8), 0 0 40px #FFD700; }
+        }
+        
+        .boss-dialog-container p {
+            color: white;
+            font-size: 18px;
+            margin: 0 0 30px 0;
+            line-height: 1.5;
+        }
+        
+        .boss-choice-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .boss-btn {
+            background: linear-gradient(45deg, #4169E1, #87CEEB);
+            color: white;
+            border: 3px solid #FFD700;
+            padding: 15px 30px;
+            margin: 10px;
+            border-radius: 15px;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            min-width: 120px;
+        }
+        
+        .boss-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+            background: linear-gradient(45deg, #87CEEB, #4169E1);
+        }
+        
+        .boss-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .boss-btn.decline {
+            background: linear-gradient(45deg, #8B0000, #DC143C);
+        }
+        
+        .boss-btn.decline:hover {
+            background: linear-gradient(45deg, #DC143C, #8B0000);
+        }
+
+        /* Power Upgrade Dialog */
+        #powerUpgradeDialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+        
+        .power-upgrade-container {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 700px;
+            border: 4px solid #FFFFFF;
+            box-shadow: 0 0 50px rgba(255,215,0,0.9);
+            animation: victoryGlow 2s infinite alternate;
+        }
+        
+        @keyframes victoryGlow {
+            from { box-shadow: 0 0 50px rgba(255,215,0,0.9); }
+            to { box-shadow: 0 0 80px rgba(255,255,255,1.0); }
+        }
+        
+        .power-upgrade-container h1 {
+            color: #8B0000;
+            font-size: 42px;
+            margin: 0 0 20px 0;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.8);
+            animation: victoryText 1.5s infinite alternate;
+        }
+        
+        @keyframes victoryText {
+            from { text-shadow: 3px 3px 6px rgba(0,0,0,0.8), 0 0 20px #FFFFFF; }
+            to { text-shadow: 3px 3px 6px rgba(0,0,0,0.8), 0 0 40px #FFFFFF; }
+        }
+        
+        .power-upgrade-container p {
+            color: #000080;
+            font-size: 18px;
+            margin: 0 0 30px 0;
+            line-height: 1.5;
+            font-weight: bold;
+        }
+        
+        .power-choice-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .power-choice-btn {
+            background: linear-gradient(45deg, #4169E1, #87CEEB);
+            color: white;
+            border: 3px solid #000080;
+            padding: 20px 25px;
+            margin: 10px;
+            border-radius: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            min-width: 150px;
+            text-align: center;
+        }
+        
+        .power-choice-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+            background: linear-gradient(45deg, #87CEEB, #4169E1);
+        }
+        
+        .power-choice-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .power-choice-btn.ice {
+            background: linear-gradient(45deg, #00BFFF, #87CEEB);
+            border-color: #00BFFF;
+        }
+        
+        .power-choice-btn.ice:hover {
+            background: linear-gradient(45deg, #87CEEB, #00BFFF);
+        }
+        
+        .power-choice-btn.fire {
+            background: linear-gradient(45deg, #FF4500, #FF6347);
+            border-color: #FF4500;
+        }
+        
+        .power-choice-btn.fire:hover {
+            background: linear-gradient(45deg, #FF6347, #FF4500);
+        }
+        
+        .power-choice-btn.combined {
+            background: linear-gradient(45deg, #9932CC, #DDA0DD);
+            border-color: #9932CC;
+        }
+        
+        .power-choice-btn.combined:hover {
+            background: linear-gradient(45deg, #DDA0DD, #9932CC);
+        }
+
         /* Show touch controls on touch devices and tablets */
         @media (max-width: 1024px), (pointer: coarse) {
             #touchControls, #touchPowers {
@@ -309,6 +548,44 @@
             .menu-container h2 {
                 font-size: 20px;
             }
+            
+            .boss-dialog-container {
+                margin: 20px;
+                padding: 30px;
+            }
+            
+            .boss-dialog-container h1 {
+                font-size: 32px;
+            }
+            
+            .boss-choice-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .boss-btn {
+                width: 80%;
+                max-width: 250px;
+            }
+            
+            .power-upgrade-container {
+                margin: 20px;
+                padding: 30px;
+            }
+            
+            .power-upgrade-container h1 {
+                font-size: 32px;
+            }
+            
+            .power-choice-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .power-choice-btn {
+                width: 80%;
+                max-width: 250px;
+            }
         }
     </style>
 </head>
@@ -316,10 +593,20 @@
     <!-- Home Screen -->
     <div id="homeScreen">
         <div class="menu-container">
-            <h1>🎮 Outdoor Adventure</h1>
-            <h2>Skeleton Key Quest</h2>
-            <p>Explore 1000 rooms, collect keys, defeat enemies!</p>
-            <button id="startGameBtn" class="menu-btn">🚀 Start Game</button>
+            <div class="whats-new-banner">
+                <h3>🆕 WHAT'S NEW!</h3>
+                <ul>
+                    <li>⚔️ Epic Boss Fights every 5 keys!</li>
+                    <li>🔥 10 Different Boss Types that cycle!</li>
+                    <li>⚡ Power Upgrades after each victory!</li>
+                    <li>🌟 Lightning Storm ultimate power!</li>
+                    <li>🗺️ Massive 1000-room adventure!</li>
+                </ul>
+            </div>
+            <h1>⚔️ Fightin Mortal Enemies</h1>
+            <h2>Epic Boss Battle Adventure</h2>
+            <p>Explore 1000 magical rooms, collect keys, fight epic bosses, and upgrade your powers!</p>
+            <button id="startGameBtn" class="menu-btn">🚀 Start Adventure</button>
             <button id="instructionsBtn" class="menu-btn">📖 How to Play</button>
         </div>
     </div>
@@ -327,22 +614,56 @@
     <!-- Instructions Screen -->
     <div id="instructionsScreen" style="display: none;">
         <div class="menu-container">
-            <h1>📖 How to Play</h1>
+            <h1>📖 How to Play Fightin Mortal Enemies</h1>
             <div class="instructions-content">
                 <h3>🎯 Objective:</h3>
-                <p>Collect all 33 skeleton keys by exploring rooms and defeating enemies!</p>
+                <p>Collect skeleton keys and explore all 1000 magical rooms! Fight epic bosses and upgrade your powers!</p>
                 
                 <h3>🎮 Controls:</h3>
                 <p><strong>Desktop:</strong> WASD to move, Mouse to aim and shoot</p>
                 <p><strong>iPad/Mobile:</strong> Arrow keys to move, select power then tap screen to shoot</p>
                 
                 <h3>⚡ Powers:</h3>
-                <p>❄️ Ice Beam | 🔥 Fire Beam | ⚡ Combined Beam</p>
+                <p>❄️ Ice Beam | 🔥 Fire Beam | ⚡ Combined Beam | 🌟 Lightning Storm (unlocked from bosses)</p>
+                
+                <h3>⚔️ Boss Fights:</h3>
+                <p>Every 5 keys triggers an epic boss battle! Fight 10 different boss types that cycle through. Win to upgrade one of your powers permanently!</p>
+                
+                <h3>🔥 Power Upgrades:</h3>
+                <p>After defeating a boss, choose to upgrade Ice (+20 damage), Fire (+25 damage), or Combined (+40 damage) with faster cooldowns!</p>
                 
                 <h3>💎 Power-ups:</h3>
                 <p>❤️ Health | ⚡ Speed | 💥 Damage | 🛡️ Shield | 🚀 Mega Speed | ⭐ Invincibility</p>
             </div>
             <button id="backToMenuBtn" class="menu-btn">← Back to Menu</button>
+        </div>
+    </div>
+
+    <!-- Boss Fight Dialog -->
+    <div id="bossDialog" style="display: none;">
+        <div class="boss-dialog-container">
+            <h1>⚔️ BOSS CHALLENGE ⚔️</h1>
+            <p>You have collected <span id="bossKeyCount">5</span> skeleton keys! A powerful evolved enemy awaits you in the shadow realm.</p>
+            <p>Do you dare to fight the <span id="bossName">Evolved Shadow Beast</span> for a legendary power upgrade?</p>
+            <p><strong>Warning:</strong> This battle will be extremely dangerous, but victory lets you upgrade one of your powers!</p>
+            <div class="boss-choice-buttons">
+                <button id="acceptBossBtn" class="boss-btn">⚔️ ACCEPT CHALLENGE</button>
+                <button id="declineBossBtn" class="boss-btn decline">❌ DECLINE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Power Upgrade Dialog -->
+    <div id="powerUpgradeDialog" style="display: none;">
+        <div class="power-upgrade-container">
+            <h1>🎉 VICTORY! 🎉</h1>
+            <p>You have defeated the Evolved Shadow Beast!</p>
+            <p>Choose one of your powers to upgrade and make more powerful:</p>
+            <div class="power-choice-buttons">
+                <button id="upgradeIceBtn" class="power-choice-btn ice">❄️ UPGRADE ICE BEAM<br><small>+20 damage, faster cooldown</small></button>
+                <button id="upgradeFireBtn" class="power-choice-btn fire">🔥 UPGRADE FIRE BEAM<br><small>+25 damage, faster cooldown</small></button>
+                <button id="upgradeCombinedBtn" class="power-choice-btn combined">⚡ UPGRADE COMBINED BEAM<br><small>+40 damage, much faster cooldown</small></button>
+            </div>
         </div>
     </div>
 
@@ -356,6 +677,7 @@
                 <button id="ice-btn" class="power-btn">❄️ Ice Beam</button>
                 <button id="fire-btn" class="power-btn">🔥 Fire Beam</button>
                 <button id="combined-btn" class="power-btn">⚡ Combined</button>
+                <button id="lightning-btn" class="power-btn" style="display: none;">⚡ Lightning Storm</button>
             </div>
         </div>
         
@@ -377,6 +699,7 @@
             <button id="touch-ice-btn" class="touch-power-btn">❄️</button>
             <button id="touch-fire-btn" class="touch-power-btn">🔥</button>
             <button id="touch-combined-btn" class="touch-power-btn">⚡</button>
+            <button id="touch-lightning-btn" class="touch-power-btn" style="display: none;">🌟</button>
         </div>
     </div>
     
