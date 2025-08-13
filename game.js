@@ -21,6 +21,7 @@ const downBtn = document.getElementById('down-btn');
 const touchIceBtn = document.getElementById('touch-ice-btn');
 const touchFireBtn = document.getElementById('touch-fire-btn');
 const touchCombinedBtn = document.getElementById('touch-combined-btn');
+const touchLightningBtn = document.getElementById('touch-lightning-btn');
 
 // Check if mobile device or touch device
 function isMobile() {
@@ -55,7 +56,18 @@ let gameState = {
         damage: 0,
         shield: 0,
         rapidFire: 0
-    }
+    },
+    bossFightOffered: false,
+    inBossArena: false,
+    returnRoom: 0,
+    hasLightningPower: false,
+    powerUpgrades: {
+        ice: 0,
+        fire: 0,
+        combined: 0
+    },
+    powerUpgradeTimer: null,
+    selectedUpgradePower: null
 };
 
 // Player
@@ -81,7 +93,8 @@ const player = {
 const powers = {
     ice: { cooldown: 0, maxCooldown: 400, damage: 30, color: '#00BFFF' },
     fire: { cooldown: 0, maxCooldown: 400, damage: 35, color: '#FF4500' },
-    combined: { cooldown: 0, maxCooldown: 2000, damage: 70, color: '#9932CC' }
+    combined: { cooldown: 0, maxCooldown: 2000, damage: 70, color: '#9932CC' },
+    lightning: { cooldown: 0, maxCooldown: 1500, damage: 100, color: '#FFFF00' }
 };
 
 // Projectiles
@@ -127,7 +140,7 @@ for (let i = 0; i < 1000; i++) {
     const finalEnemies = Math.max(1, baseEnemies + enemyVariation);
     
     const room = {
-        name: `${theme.name} ${Math.floor(i / roomThemes.length) + 1} (Level ${difficultyLevel})`,
+        name: `Room ${i + 1} - ${theme.name}`, // Simple sequential numbering
         background: theme.bg,
         accent: theme.accent,
         particle: theme.particle,
@@ -161,15 +174,11 @@ for (let i = 0; i < 1000; i++) {
         room.passages.push(passage);
     }
     
-    // Add some rooms with multiple passages for exploration (more variety)
-    if (i % 10 === 0 && i < 990) {
-        const extraPassage = { x: canvas.width/4, y: canvas.height/4, width: 80, height: 80, targetRoom: i + 10, targetX: canvas.width/4, targetY: canvas.height/4 };
-        room.passages.push(extraPassage);
-    }
+    // Remove extra passages that skip rooms - we want sequential progression only
     
     // Add boss rooms every 100 levels
     if (i % 100 === 99) {
-        room.name = `🔥 BOSS ROOM ${Math.floor(i / 100) + 1} 🔥`;
+        room.name = `🔥 BOSS ROOM ${i + 1} 🔥`;
         room.enemies = Math.min(12, 3 + Math.floor(i / 100) * 2); // More enemies in boss rooms
         room.background = '#8B0000'; // Dark red for boss rooms
         room.particle = '#FF0000';
@@ -237,6 +246,8 @@ canvas.addEventListener('touchstart', (e) => {
             shootFire();
         } else if (selectedPower === 'combined' && powers.combined.cooldown <= 0) {
             shootCombined();
+        } else if (selectedPower === 'lightning' && powers.lightning.cooldown <= 0 && gameState.hasLightningPower) {
+            shootLightning();
         }
     }
 });
@@ -313,16 +324,24 @@ touchCombinedBtn.addEventListener('touchstart', (e) => {
     selectedPower = selectedPower === 'combined' ? null : 'combined';
 });
 
+touchLightningBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    selectedPower = selectedPower === 'lightning' ? null : 'lightning';
+});
+
 // Power Button Event Listeners
 document.getElementById('ice-btn').addEventListener('click', () => shootIce());
 document.getElementById('fire-btn').addEventListener('click', () => shootFire());
 document.getElementById('combined-btn').addEventListener('click', () => shootCombined());
+document.getElementById('lightning-btn').addEventListener('click', () => shootLightning());
 
 // Game Functions
 function shootIce() {
     if (powers.ice.cooldown <= 0) {
         createProjectile('ice');
-        powers.ice.cooldown = powers.ice.maxCooldown / (gameState.powerUps.rapidFire > 0 ? 2 : 1);
+        // Faster cooldown with upgrades
+        let cooldownReduction = gameState.powerUpgrades.ice > 0 ? 0.7 : 1;
+        powers.ice.cooldown = (powers.ice.maxCooldown * cooldownReduction) / (gameState.powerUps.rapidFire > 0 ? 2 : 1);
         createShootEffect(player.x, player.y, '#00BFFF', '#87CEEB');
     }
 }
@@ -330,7 +349,9 @@ function shootIce() {
 function shootFire() {
     if (powers.fire.cooldown <= 0) {
         createProjectile('fire');
-        powers.fire.cooldown = powers.fire.maxCooldown / (gameState.powerUps.rapidFire > 0 ? 2 : 1);
+        // Faster cooldown with upgrades
+        let cooldownReduction = gameState.powerUpgrades.fire > 0 ? 0.7 : 1;
+        powers.fire.cooldown = (powers.fire.maxCooldown * cooldownReduction) / (gameState.powerUps.rapidFire > 0 ? 2 : 1);
         createShootEffect(player.x, player.y, '#FF4500', '#FF6347');
     }
 }
@@ -338,15 +359,38 @@ function shootFire() {
 function shootCombined() {
     if (powers.combined.cooldown <= 0) {
         createProjectile('combined');
-        powers.combined.cooldown = powers.combined.maxCooldown / (gameState.powerUps.rapidFire > 0 ? 2 : 1);
+        // Much faster cooldown with upgrades
+        let cooldownReduction = gameState.powerUpgrades.combined > 0 ? 0.5 : 1;
+        powers.combined.cooldown = (powers.combined.maxCooldown * cooldownReduction) / (gameState.powerUps.rapidFire > 0 ? 2 : 1);
         createShootEffect(player.x, player.y, '#9932CC', '#DDA0DD');
+    }
+}
+
+function shootLightning() {
+    if (powers.lightning.cooldown <= 0 && gameState.hasLightningPower) {
+        // Lightning storm creates multiple projectiles in different directions
+        for (let i = 0; i < 8; i++) {
+            const angle = (i * Math.PI * 2) / 8;
+            createLightningProjectile(angle);
+        }
+        powers.lightning.cooldown = powers.lightning.maxCooldown / (gameState.powerUps.rapidFire > 0 ? 2 : 1);
+        createLightningEffect(player.x, player.y);
     }
 }
 
 function createProjectile(type) {
     const angle = Math.atan2(player.mouseY - player.y, player.mouseX - player.x);
     const speed = 15;
-    const damage = powers[type].damage + (gameState.powerUps.damage * 10);
+    
+    // Calculate damage with upgrades
+    let baseDamage = powers[type].damage;
+    if (gameState.powerUpgrades[type] > 0) {
+        if (type === 'ice') baseDamage += 20 * gameState.powerUpgrades[type];
+        else if (type === 'fire') baseDamage += 25 * gameState.powerUpgrades[type];
+        else if (type === 'combined') baseDamage += 40 * gameState.powerUpgrades[type];
+    }
+    
+    const damage = Math.max(1, baseDamage + (gameState.powerUps.damage * 10)); // Ensure positive damage
     
     projectiles.push({
         x: player.x,
@@ -356,11 +400,50 @@ function createProjectile(type) {
         type: type,
         damage: damage,
         color: powers[type].color,
-        size: type === 'combined' ? 15 : 12,
+        size: type === 'combined' ? 15 : (type === 'lightning' ? 18 : 12),
         life: 120,
         trail: [],
         rotation: 0
     });
+    
+    // Debug logging
+    console.log(`Created ${type} projectile with ${damage} damage`);
+}
+
+function createLightningProjectile(angle) {
+    const speed = 18;
+    const damage = powers.lightning.damage + (gameState.powerUps.damage * 10);
+    
+    projectiles.push({
+        x: player.x,
+        y: player.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        type: 'lightning',
+        damage: damage,
+        color: powers.lightning.color,
+        size: 18,
+        life: 150,
+        trail: [],
+        rotation: 0,
+        lightning: true
+    });
+}
+
+function createLightningEffect(x, y) {
+    for (let i = 0; i < 50; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 30,
+            vy: (Math.random() - 0.5) * 30,
+            life: 60,
+            maxLife: 60,
+            color: Math.random() > 0.5 ? '#FFFF00' : '#FFFFFF',
+            size: Math.random() * 12 + 6,
+            type: 'lightning'
+        });
+    }
 }
 
 function createShootEffect(x, y, color1, color2) {
@@ -521,7 +604,27 @@ function updateProjectiles() {
             continue;
         }
         
-        // Check collision with enemies
+        // Boss projectiles hit player
+        if (proj.fromBoss) {
+            const dx = proj.x - player.x;
+            const dy = proj.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < player.size + proj.size && !player.invincible) {
+                if (gameState.powerUps.shield > 0) {
+                    createHitEffect(player.x, player.y, '#4169E1', '#87CEEB');
+                } else {
+                    player.health -= proj.damage;
+                    createHitEffect(player.x, player.y, '#FF6B6B', '#FFB6C1');
+                    player.invincible = true;
+                    setTimeout(() => { player.invincible = false; }, 1000);
+                }
+                projectiles.splice(i, 1);
+            }
+            continue;
+        }
+        
+        // Player projectiles hit enemies
         for (let j = enemies.length - 1; j >= 0; j--) {
             const enemy = enemies[j];
             const dx = proj.x - enemy.x;
@@ -529,19 +632,31 @@ function updateProjectiles() {
             const distance = Math.sqrt(dx * dx + dy * dy);
             
             if (distance < enemy.size + proj.size) {
-                enemy.health -= proj.damage;
                 enemy.lastHitTime = gameState.gameTime; // Track when hit
                 createHitEffect(enemy.x, enemy.y, proj.color, enemy.color);
                 projectiles.splice(i, 1);
+                
+                // Special boss hit system: count hits instead of damage
+                if (enemy.isBoss) {
+                    enemy.health -= 1; // Each hit = 1 point of damage for bosses
+                    console.log(`Boss hit! Hits taken: ${enemy.maxHealth - enemy.health + 1}/14`);
+                } else {
+                    // Normal enemies use regular damage system
+                    const damageToApply = Math.abs(proj.damage);
+                    enemy.health -= damageToApply;
+                    console.log(`Enemy hit! Damage: ${damageToApply}, Enemy health: ${enemy.health}/${enemy.maxHealth}`);
+                }
                 
                 if (enemy.health <= 0) {
                     createDeathEffect(enemy.x, enemy.y, enemy.color);
                     enemies.splice(j, 1);
                     
                     // Chance to drop power-up (increases with room number)
-                    const dropChance = 0.3 + (gameState.currentRoom * 0.01);
-                    if (Math.random() < dropChance) {
-                        createPowerUp();
+                    if (!gameState.inBossArena) {
+                        const dropChance = 0.3 + (gameState.currentRoom * 0.01);
+                        if (Math.random() < dropChance) {
+                            createPowerUp();
+                        }
                     }
                 }
                 break;
@@ -731,6 +846,12 @@ function updateKeys() {
                 keyCountElement.textContent = gameState.keys;
                 createCollectEffect(key.x, key.y);
                 keys.splice(index, 1);
+                
+                // Check for boss fight trigger - every 5 keys
+                if (gameState.keys > 0 && gameState.keys % 5 === 0 && !gameState.bossFightOffered && !gameState.inBossArena) {
+                    gameState.bossFightOffered = true; // Set flag to prevent multiple triggers
+                    offerBossFight();
+                }
             }
         }
     });
@@ -748,6 +869,289 @@ function createCollectEffect(x, y) {
             color: ['#FFD700', '#FFFACD', '#FFFF00', '#FFA500'][Math.floor(Math.random() * 4)],
             size: Math.random() * 10 + 5,
             type: 'collect'
+        });
+    }
+}
+
+// Boss Fight System
+function offerBossFight() {
+    gameState.bossFightOffered = true;
+    gameState.returnRoom = gameState.currentRoom;
+    gameRunning = false; // Pause the game
+    
+    const bossDialog = document.getElementById('bossDialog');
+    const acceptBtn = document.getElementById('acceptBossBtn');
+    const declineBtn = document.getElementById('declineBossBtn');
+    const bossKeyCount = document.getElementById('bossKeyCount');
+    const bossName = document.getElementById('bossName');
+    
+    // Update dialog with current info
+    bossKeyCount.textContent = gameState.keys;
+    
+    // Show which boss they'll fight
+    const bossNumber = Math.floor(gameState.keys / 5) % 10;
+    const bossTypes = [
+        'Shadow Beast', 'Flame Demon', 'Ice Titan', 'Thunder Lord', 'Void Wraith',
+        'Crystal Golem', 'Blood Reaper', 'Storm Dragon', 'Chaos Overlord', 'Nightmare King'
+    ];
+    bossName.textContent = `Evolved ${bossTypes[bossNumber]}`;
+    
+    bossDialog.style.display = 'flex';
+    
+    // Add event listeners for boss choice (works on all devices)
+    acceptBtn.onclick = acceptBossFight;
+    declineBtn.onclick = declineBossFight;
+    
+    // Touch support
+    acceptBtn.ontouchstart = (e) => { e.preventDefault(); acceptBossFight(); };
+    declineBtn.ontouchstart = (e) => { e.preventDefault(); declineBossFight(); };
+}
+
+function acceptBossFight() {
+    const bossDialog = document.getElementById('bossDialog');
+    bossDialog.style.display = 'none';
+    
+    gameState.inBossArena = true;
+    gameState.keys = 0; // Clear keys as mentioned
+    keyCountElement.textContent = '0';
+    
+    loadBossArena();
+    gameRunning = true;
+    gameLoop();
+}
+
+function declineBossFight() {
+    const bossDialog = document.getElementById('bossDialog');
+    bossDialog.style.display = 'none';
+    
+    gameState.keys = 0; // Clear keys as mentioned
+    keyCountElement.textContent = '0';
+    gameState.bossFightOffered = false; // Reset flag for next time
+    
+    gameRunning = true;
+    gameLoop();
+}
+
+function loadBossArena() {
+    // Clear existing entities
+    enemies = [];
+    keys = [];
+    projectiles = [];
+    particles = [];
+    powerUps = [];
+    
+    // Create the evolved boss enemy
+    createEvolvedBoss();
+    
+    // Set player to center
+    player.x = canvas.width / 2;
+    player.y = canvas.height / 2;
+    player.health = player.maxHealth; // Full heal for the fight
+}
+
+function createEvolvedBoss() {
+    // 10 different boss types that cycle based on how many boss fights completed
+    const bossNumber = Math.floor(gameState.keys / 5) % 10; // Cycle through 10 bosses
+    
+    const bossTypes = [
+        { name: 'Shadow Beast', color: '#8B0000', size: 45, speed: 1.5 },
+        { name: 'Flame Demon', color: '#FF4500', size: 48, speed: 1.6 },
+        { name: 'Ice Titan', color: '#00CED1', size: 50, speed: 1.3 },
+        { name: 'Thunder Lord', color: '#FFD700', size: 42, speed: 1.8 },
+        { name: 'Void Wraith', color: '#4B0082', size: 40, speed: 2.0 },
+        { name: 'Crystal Golem', color: '#32CD32', size: 55, speed: 1.2 },
+        { name: 'Blood Reaper', color: '#DC143C', size: 46, speed: 1.7 },
+        { name: 'Storm Dragon', color: '#9932CC', size: 58, speed: 1.4 },
+        { name: 'Chaos Overlord', color: '#FF1493', size: 52, speed: 1.5 },
+        { name: 'Nightmare King', color: '#000000', size: 60, speed: 1.3 }
+    ];
+    
+    const boss = bossTypes[bossNumber];
+    
+    // Simple system: ALL bosses die in exactly 14 hits, no matter what
+    // We'll track hits instead of using health calculation
+    const bossHealth = 14; // This represents "hits to kill" not actual health points
+    
+    console.log(`Boss created: Will die in exactly 14 hits regardless of damage or upgrades`);
+    
+    enemies.push({
+        x: canvas.width / 4,
+        y: canvas.height / 4,
+        size: boss.size,
+        health: bossHealth,
+        maxHealth: bossHealth,
+        speed: boss.speed * 1.2, // Slightly faster for challenge
+        color: boss.color,
+        name: `Evolved ${boss.name}`,
+        pulse: 0,
+        rotation: 0,
+        trail: [],
+        lastHitTime: 0,
+        isBoss: true,
+        bossType: bossNumber,
+        attackCooldown: 0,
+        specialAttackCooldown: 0
+    });
+}
+
+function updateBossArena() {
+    // Special boss arena logic
+    if (enemies.length === 0 && gameState.inBossArena) {
+        // Boss defeated! Show power upgrade choice immediately
+        gameState.inBossArena = false;
+        gameRunning = false; // Pause game for choice
+        
+        // Victory effect
+        createVictoryEffect();
+        
+        // Show power upgrade dialog immediately
+        showPowerUpgradeChoice();
+    }
+    
+    // Boss special attacks
+    enemies.forEach(enemy => {
+        if (enemy.isBoss) {
+            enemy.attackCooldown--;
+            enemy.specialAttackCooldown--;
+            
+            // Boss projectile attack (much less frequent for kids)
+            if (enemy.attackCooldown <= 0) {
+                createBossProjectile(enemy);
+                enemy.attackCooldown = 240; // 4 seconds (much slower)
+            }
+            
+            // Boss special area attack (much less frequent and weaker)
+            if (enemy.specialAttackCooldown <= 0) {
+                createBossAreaAttack(enemy);
+                enemy.specialAttackCooldown = 600; // 10 seconds (much slower)
+            }
+        }
+    });
+    
+
+}
+
+function createBossProjectile(boss) {
+    const angle = Math.atan2(player.y - boss.y, player.x - boss.x);
+    const speed = 4; // Much slower for kids
+    
+    projectiles.push({
+        x: boss.x,
+        y: boss.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        type: 'boss',
+        damage: 8, // Much less damage for kids
+        color: '#8B0000',
+        size: 15, // Smaller projectiles
+        life: 120, // Shorter life
+        trail: [],
+        rotation: 0,
+        fromBoss: true
+    });
+}
+
+function createBossAreaAttack(boss) {
+    // Create fewer projectiles in a circle (easier for kids)
+    for (let i = 0; i < 6; i++) { // Half as many projectiles
+        const angle = (i * Math.PI * 2) / 6;
+        const speed = 3; // Much slower
+        
+        projectiles.push({
+            x: boss.x,
+            y: boss.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            type: 'boss',
+            damage: 5, // Much less damage
+            color: '#DC143C',
+            size: 12, // Smaller
+            life: 100, // Shorter life
+            trail: [],
+            rotation: 0,
+            fromBoss: true
+        });
+    }
+}
+
+function createVictoryEffect() {
+    for (let i = 0; i < 100; i++) {
+        particles.push({
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            vx: (Math.random() - 0.5) * 40,
+            vy: (Math.random() - 0.5) * 40,
+            life: 150,
+            maxLife: 150,
+            color: ['#FFD700', '#FFFF00', '#FFFFFF', '#87CEEB'][Math.floor(Math.random() * 4)],
+            size: Math.random() * 15 + 10,
+            type: 'victory'
+        });
+    }
+}
+
+// Power Upgrade Choice System
+function showPowerUpgradeChoice() {
+    const powerUpgradeDialog = document.getElementById('powerUpgradeDialog');
+    const upgradeIceBtn = document.getElementById('upgradeIceBtn');
+    const upgradeFireBtn = document.getElementById('upgradeFireBtn');
+    const upgradeCombinedBtn = document.getElementById('upgradeCombinedBtn');
+    
+    powerUpgradeDialog.style.display = 'flex';
+    
+    // Add event listeners for power upgrade choices (works on all devices)
+    upgradeIceBtn.onclick = () => upgradePower('ice');
+    upgradeFireBtn.onclick = () => upgradePower('fire');
+    upgradeCombinedBtn.onclick = () => upgradePower('combined');
+    
+    // Touch support
+    upgradeIceBtn.ontouchstart = (e) => { e.preventDefault(); upgradePower('ice'); };
+    upgradeFireBtn.ontouchstart = (e) => { e.preventDefault(); upgradePower('fire'); };
+    upgradeCombinedBtn.ontouchstart = (e) => { e.preventDefault(); upgradePower('combined'); };
+}
+
+function upgradePower(powerType) {
+    const powerUpgradeDialog = document.getElementById('powerUpgradeDialog');
+    powerUpgradeDialog.style.display = 'none';
+    
+    // Upgrade the chosen power
+    gameState.powerUpgrades[powerType]++;
+    
+    // Also grant lightning power as bonus
+    gameState.hasLightningPower = true;
+    const lightningBtn = document.getElementById('lightning-btn');
+    lightningBtn.style.display = 'inline-block';
+    
+    // Show touch lightning button for iPad/mobile
+    touchLightningBtn.style.display = 'flex';
+    
+    // Reset boss fight flag so it can trigger again
+    gameState.bossFightOffered = false;
+    
+    // Show upgrade effect
+    createUpgradeEffect();
+    
+    // Start 3-second countdown like death screen
+    gameState.powerUpgradeTimer = 3;
+    gameState.selectedUpgradePower = powerType;
+    gameRunning = true; // Keep game loop running for countdown
+    gameLoop(); // Restart the game loop for countdown
+    
+    console.log(`Power upgraded! ${powerType} level: ${gameState.powerUpgrades[powerType]}`);
+}
+
+function createUpgradeEffect() {
+    for (let i = 0; i < 80; i++) {
+        particles.push({
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            vx: (Math.random() - 0.5) * 30,
+            vy: (Math.random() - 0.5) * 30,
+            life: 120,
+            maxLife: 120,
+            color: ['#FFD700', '#FFFF00', '#FFFFFF', '#00FF00'][Math.floor(Math.random() * 4)],
+            size: Math.random() * 12 + 8,
+            type: 'upgrade'
         });
     }
 }
@@ -803,6 +1207,7 @@ function updatePowers() {
     const iceCooldown = powers.ice.cooldown > 0;
     const fireCooldown = powers.fire.cooldown > 0;
     const combinedCooldown = powers.combined.cooldown > 0;
+    const lightningCooldown = powers.lightning.cooldown > 0;
     
     document.getElementById('ice-btn').className = 
         `power-btn ${iceCooldown ? 'cooldown' : ''}`;
@@ -811,10 +1216,21 @@ function updatePowers() {
     document.getElementById('combined-btn').className = 
         `power-btn ${combinedCooldown ? 'cooldown' : ''}`;
     
+    // Lightning button only shows if player has the power
+    if (gameState.hasLightningPower) {
+        document.getElementById('lightning-btn').className = 
+            `power-btn ${lightningCooldown ? 'cooldown' : ''}`;
+    }
+    
     // Update touch power buttons with selection state
     touchIceBtn.className = `touch-power-btn ${iceCooldown ? 'cooldown' : ''} ${selectedPower === 'ice' ? 'selected' : ''}`;
     touchFireBtn.className = `touch-power-btn ${fireCooldown ? 'cooldown' : ''} ${selectedPower === 'fire' ? 'selected' : ''}`;
     touchCombinedBtn.className = `touch-power-btn ${combinedCooldown ? 'cooldown' : ''} ${selectedPower === 'combined' ? 'selected' : ''}`;
+    
+    // Update lightning touch button if available
+    if (gameState.hasLightningPower) {
+        touchLightningBtn.className = `touch-power-btn ${lightningCooldown ? 'cooldown' : ''} ${selectedPower === 'lightning' ? 'selected' : ''}`;
+    }
 }
 
 function updatePlayer() {
@@ -1190,29 +1606,50 @@ function drawRoomInfo() {
 function gameLoop() {
     if (!gameRunning) return;
     
-    // Clear canvas
-    const room = rooms[gameState.currentRoom];
-    ctx.fillStyle = room.background;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Add room-specific particle effects
-    if (Math.random() < 0.15) {
-        particles.push({
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height,
-            vx: (Math.random() - 0.5) * 3,
-            vy: (Math.random() - 0.5) * 3,
-            life: 80,
-            maxLife: 80,
-            color: room.particle,
-            size: Math.random() * 6 + 3,
-            type: 'ambient'
-        });
-    }
-    
-    // Spawn power-ups randomly
-    if (Math.random() < 0.005 && powerUps.length < 3) {
-        createPowerUp();
+    // Clear canvas with appropriate background
+    if (gameState.inBossArena) {
+        // Boss arena has special dark background
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Add menacing red particles
+        if (Math.random() < 0.2) {
+            particles.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                vx: (Math.random() - 0.5) * 2,
+                vy: (Math.random() - 0.5) * 2,
+                life: 100,
+                maxLife: 100,
+                color: '#8B0000',
+                size: Math.random() * 8 + 4,
+                type: 'ambient'
+            });
+        }
+    } else {
+        const room = rooms[gameState.currentRoom];
+        ctx.fillStyle = room.background;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Add room-specific particle effects
+        if (Math.random() < 0.15) {
+            particles.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                vx: (Math.random() - 0.5) * 3,
+                vy: (Math.random() - 0.5) * 3,
+                life: 80,
+                maxLife: 80,
+                color: room.particle,
+                size: Math.random() * 6 + 3,
+                type: 'ambient'
+            });
+        }
+        
+        // Spawn power-ups randomly (not in boss arena)
+        if (Math.random() < 0.005 && powerUps.length < 3) {
+            createPowerUp();
+        }
     }
     
     // Update game state
@@ -1223,10 +1660,18 @@ function gameLoop() {
     updateParticles();
     updatePowerUps();
     updatePowers();
-    checkRoomTransitions();
+    
+    // Boss arena logic or regular room logic
+    if (gameState.inBossArena) {
+        updateBossArena();
+    } else {
+        checkRoomTransitions();
+    }
     
     // Draw everything
-    drawPassages();
+    if (!gameState.inBossArena) {
+        drawPassages();
+    }
     drawKeys();
     drawPowerUps();
     drawEnemies();
@@ -1235,6 +1680,42 @@ function gameLoop() {
     drawPlayer();
     drawRoomInfo();
     
+    // Check power upgrade countdown
+    if (gameState.powerUpgradeTimer !== null) {
+        ctx.fillStyle = 'rgba(0,0,0,0.9)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = '#FFD700';
+        ctx.font = '48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('POWER UPGRADED!', canvas.width/2, canvas.height/2);
+        ctx.font = '24px Arial';
+        ctx.fillText(`${gameState.selectedUpgradePower.toUpperCase()} BEAM ENHANCED!`, canvas.width/2, canvas.height/2 + 40);
+        ctx.fillText(`Lightning Storm Power Unlocked!`, canvas.width/2, canvas.height/2 + 70);
+        
+        // Countdown timer
+        const countdownSeconds = Math.ceil(gameState.powerUpgradeTimer);
+        ctx.fillStyle = '#00FF00';
+        ctx.font = '36px Arial';
+        ctx.fillText(`Returning to game in ${countdownSeconds}...`, canvas.width/2, canvas.height/2 + 110);
+        
+        // Update countdown properly
+        gameState.powerUpgradeTimer -= 1/60; // Subtract 1/60th of a second (60 FPS)
+        
+        if (gameState.powerUpgradeTimer <= 0) {
+            gameState.powerUpgradeTimer = null;
+            gameState.selectedUpgradePower = null;
+            loadRoom(gameState.returnRoom);
+            gameRunning = true; // Ensure game continues running
+            // Don't return here - let the normal game loop continue
+        } else {
+            // Continue the game loop for countdown
+            gameState.gameTime++;
+            requestAnimationFrame(gameLoop);
+            return;
+        }
+    }
+
     // Check game over
     if (player.health <= 0) {
         if (!gameState.gameOverTimer) {
@@ -1387,7 +1868,18 @@ function restartGame() {
             damage: 0,
             shield: 0,
             rapidFire: 0
-        }
+        },
+        bossFightOffered: false,
+        inBossArena: false,
+        returnRoom: 0,
+        hasLightningPower: false,
+        powerUpgrades: {
+            ice: 0,
+            fire: 0,
+            combined: 0
+        },
+        powerUpgradeTimer: null,
+        selectedUpgradePower: null
     };
     
     // Reset player
@@ -1407,6 +1899,12 @@ function restartGame() {
     Object.keys(powers).forEach(power => {
         powers[power].cooldown = 0;
     });
+    
+    // Hide lightning button
+    document.getElementById('lightning-btn').style.display = 'none';
+    
+    // Hide touch lightning button
+    touchLightningBtn.style.display = 'none';
     
     // Load first room
     loadRoom(0);
