@@ -3,6 +3,24 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const keyCountElement = document.getElementById('keyCount');
 
+// Screen effects
+let screenShake = { x: 0, y: 0, intensity: 0, duration: 0 };
+let screenFlash = { alpha: 0, color: '#FFFFFF', duration: 0 };
+let chromaAberration = { intensity: 0, duration: 0 };
+
+// Enhanced particle system
+let backgroundParticles = [];
+let ambientEffects = [];
+let screenEffects = [];
+
+// Background effect system
+let backgroundAnimation = {
+    time: 0,
+    stars: [],
+    floatingOrbs: [],
+    roomEffects: []
+};
+
 // Set canvas to fullscreen
 function resizeCanvas() {
     canvas.width = window.innerWidth;
@@ -18,9 +36,6 @@ const upBtn = document.getElementById('up-btn');
 const leftBtn = document.getElementById('left-btn');
 const rightBtn = document.getElementById('right-btn');
 const downBtn = document.getElementById('down-btn');
-const touchIceBtn = document.getElementById('touch-ice-btn');
-const touchFireBtn = document.getElementById('touch-fire-btn');
-const touchCombinedBtn = document.getElementById('touch-combined-btn');
 const touchLightningBtn = document.getElementById('touch-lightning-btn');
 
 // Check if mobile device or touch device
@@ -67,7 +82,14 @@ let gameState = {
         combined: 0
     },
     powerUpgradeTimer: null,
-    selectedUpgradePower: null
+    selectedUpgradePower: null,
+    isPaused: false,
+    inventory: {},
+    superPowers: {
+        unlocked: ['ice', 'fire', 'combined'], // First 3 unlocked by default
+        equipped: ['ice', 'fire', 'combined'] // Ice, Fire, Combined equipped by default
+    },
+    currentLevel: 1
 };
 
 // Player
@@ -109,8 +131,18 @@ let keys = [];
 // Power-ups
 let powerUps = [];
 
-// Particles for effects
+// Particles for effects with performance limits
 let particles = [];
+const MAX_PARTICLES = 500; // Prevent particle overflow for performance
+const MAX_PROJECTILES = 80; // Prevent projectile overflow for performance
+let particleSpawnCooldown = 0; // Limit particle spawning rate
+let frameTime = 0;
+let lastFrameTime = 0;
+const TARGET_FPS = 60;
+const FRAME_TIME_TARGET = 1000 / TARGET_FPS;
+let explosionParticles = [];
+let magicParticles = [];
+let trailParticles = [];
 
 // Room themes and colors (no blood colors)
 const roomThemes = [
@@ -248,6 +280,12 @@ canvas.addEventListener('touchstart', (e) => {
             shootCombined();
         } else if (selectedPower === 'lightning' && powers.lightning.cooldown <= 0 && gameState.hasLightningPower) {
             shootLightning();
+        } else if (selectedPower === 'superpower1') {
+            useSuperPower(0);
+        } else if (selectedPower === 'superpower2') {
+            useSuperPower(1);
+        } else if (selectedPower === 'superpower3') {
+            useSuperPower(2);
         }
     }
 });
@@ -308,22 +346,7 @@ rightBtn.addEventListener('touchend', (e) => {
     keysPressed['d'] = false;
 });
 
-// Touch power button events - select power first
-touchIceBtn.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    selectedPower = selectedPower === 'ice' ? null : 'ice';
-});
-
-touchFireBtn.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    selectedPower = selectedPower === 'fire' ? null : 'fire';
-});
-
-touchCombinedBtn.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    selectedPower = selectedPower === 'combined' ? null : 'combined';
-});
-
+// Keep lightning touch button event listener
 touchLightningBtn.addEventListener('touchstart', (e) => {
     e.preventDefault();
     selectedPower = selectedPower === 'lightning' ? null : 'lightning';
@@ -334,6 +357,63 @@ document.getElementById('ice-btn').addEventListener('click', () => shootIce());
 document.getElementById('fire-btn').addEventListener('click', () => shootFire());
 document.getElementById('combined-btn').addEventListener('click', () => shootCombined());
 document.getElementById('lightning-btn').addEventListener('click', () => shootLightning());
+
+// Pause and Inventory Button Event Listeners
+document.getElementById('pause-btn').addEventListener('click', toggleInventory);
+document.getElementById('resumeBtn').addEventListener('click', toggleInventory);
+
+// Tab Event Listeners
+document.getElementById('powerupsTab').addEventListener('click', () => switchTab('powerups'));
+document.getElementById('superpowersTab').addEventListener('click', () => switchTab('superpowers'));
+
+// Super Power Button Event Listeners
+document.getElementById('superpower1-btn').addEventListener('click', () => useSuperPower(0));
+document.getElementById('superpower2-btn').addEventListener('click', () => useSuperPower(1));
+document.getElementById('superpower3-btn').addEventListener('click', () => useSuperPower(2));
+
+// Touch Super Power Button Event Listeners
+document.getElementById('touch-superpower1-btn').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    selectedPower = selectedPower === 'superpower1' ? null : 'superpower1';
+    updateSuperPowerButtons();
+});
+document.getElementById('touch-superpower2-btn').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    selectedPower = selectedPower === 'superpower2' ? null : 'superpower2';
+    updateSuperPowerButtons();
+});
+document.getElementById('touch-superpower3-btn').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    selectedPower = selectedPower === 'superpower3' ? null : 'superpower3';
+    updateSuperPowerButtons();
+});
+
+// Super Power Definitions
+const superPowers = [
+    { id: 'ice', name: 'Ice Beam', symbol: '❄️', unlockLevel: 0, description: 'Shoots ice projectiles that freeze enemies' },
+    { id: 'fire', name: 'Fire Beam', symbol: '🔥', unlockLevel: 0, description: 'Shoots fire projectiles that burn enemies' },
+    { id: 'combined', name: 'Combined Beam', symbol: '⚡', unlockLevel: 0, description: 'Powerful combination of ice and fire' },
+    { id: 'teleport', name: 'Teleport', symbol: '🌀', unlockLevel: 25, description: 'Instantly teleport to mouse position' },
+    { id: 'timeSlow', name: 'Time Slow', symbol: '⏰', unlockLevel: 50, description: 'Slows down all enemies for 10 seconds' },
+    { id: 'shield', name: 'Energy Shield', symbol: '🛡️', unlockLevel: 75, description: 'Absorbs all damage for 15 seconds' },
+    { id: 'multiShot', name: 'Multi Shot', symbol: '🎯', unlockLevel: 100, description: 'Shoots 8 projectiles in all directions' },
+    { id: 'heal', name: 'Full Heal', symbol: '💚', unlockLevel: 125, description: 'Instantly restore full health' },
+    { id: 'freeze', name: 'Freeze All', symbol: '❄️', unlockLevel: 150, description: 'Freezes all enemies for 8 seconds' },
+    { id: 'explosion', name: 'Nova Blast', symbol: '💥', unlockLevel: 175, description: 'Massive explosion around player' },
+    { id: 'ghost', name: 'Ghost Mode', symbol: '👻', unlockLevel: 200, description: 'Walk through enemies and walls for 12 seconds' },
+    { id: 'magnet', name: 'Item Magnet', symbol: '🧲', unlockLevel: 225, description: 'Attracts all items to player for 20 seconds' },
+    { id: 'clone', name: 'Shadow Clone', symbol: '👥', unlockLevel: 250, description: 'Creates 3 clones that fight with you' },
+    { id: 'lightning', name: 'Chain Lightning', symbol: '⚡', unlockLevel: 275, description: 'Lightning jumps between all enemies' },
+    { id: 'meteor', name: 'Meteor Storm', symbol: '☄️', unlockLevel: 300, description: 'Rain meteors from the sky' },
+    { id: 'void', name: 'Void Portal', symbol: '🌑', unlockLevel: 325, description: 'Creates portal that sucks in enemies' },
+    { id: 'phoenix', name: 'Phoenix Form', symbol: '🔥', unlockLevel: 350, description: 'Transform into phoenix, immune to damage' },
+    { id: 'timeBomb', name: 'Time Bomb', symbol: '⏱️', unlockLevel: 375, description: 'Places bomb that explodes after 5 seconds' },
+    { id: 'laser', name: 'Death Laser', symbol: '🔴', unlockLevel: 400, description: 'Continuous laser beam that follows mouse' },
+    { id: 'blackHole', name: 'Black Hole', symbol: '⚫', unlockLevel: 425, description: 'Creates black hole that destroys everything' },
+    { id: 'godMode', name: 'God Mode', symbol: '👑', unlockLevel: 450, description: 'Ultimate power - invincible for 30 seconds' },
+    { id: 'nuclear', name: 'Nuclear Blast', symbol: '☢️', unlockLevel: 475, description: 'Screen-clearing nuclear explosion' },
+    { id: 'reality', name: 'Reality Warp', symbol: '🌈', unlockLevel: 500, description: 'Bend reality - instant room clear' }
+];
 
 // Game Functions
 function shootIce() {
@@ -382,12 +462,12 @@ function createProjectile(type) {
     const angle = Math.atan2(player.mouseY - player.y, player.mouseX - player.x);
     const speed = 15;
     
-    // Calculate damage with upgrades
+    // Calculate damage with upgrades (reduced upgrade bonuses)
     let baseDamage = powers[type].damage;
     if (gameState.powerUpgrades[type] > 0) {
-        if (type === 'ice') baseDamage += 20 * gameState.powerUpgrades[type];
-        else if (type === 'fire') baseDamage += 25 * gameState.powerUpgrades[type];
-        else if (type === 'combined') baseDamage += 40 * gameState.powerUpgrades[type];
+        if (type === 'ice') baseDamage += 8 * gameState.powerUpgrades[type]; // Reduced from 20 to 8
+        else if (type === 'fire') baseDamage += 10 * gameState.powerUpgrades[type]; // Reduced from 25 to 10
+        else if (type === 'combined') baseDamage += 15 * gameState.powerUpgrades[type]; // Reduced from 40 to 15
     }
     
     const damage = Math.max(1, baseDamage + (gameState.powerUps.damage * 10)); // Ensure positive damage
@@ -431,39 +511,52 @@ function createLightningProjectile(angle) {
 }
 
 function createLightningEffect(x, y) {
-    for (let i = 0; i < 50; i++) {
-        particles.push({
-            x: x,
-            y: y,
-            vx: (Math.random() - 0.5) * 30,
-            vy: (Math.random() - 0.5) * 30,
-            life: 60,
-            maxLife: 60,
-            color: Math.random() > 0.5 ? '#FFFF00' : '#FFFFFF',
-            size: Math.random() * 12 + 6,
-            type: 'lightning'
-        });
-    }
-}
-
-function createShootEffect(x, y, color1, color2) {
+    // Optimized lightning effect - reduced from 120 to 30 particles total
     for (let i = 0; i < 20; i++) {
         particles.push({
             x: x,
             y: y,
-            vx: (Math.random() - 0.5) * 20,
-            vy: (Math.random() - 0.5) * 20,
-            life: 50,
-            maxLife: 50,
-            color: Math.random() > 0.5 ? color1 : color2,
-            size: Math.random() * 8 + 4,
-            type: 'shoot'
+            vx: (Math.random() - 0.5) * 40,
+            vy: (Math.random() - 0.5) * 40,
+            life: 80,
+            maxLife: 80,
+            color: Math.random() > 0.5 ? '#FFFF00' : '#FFFFFF',
+            size: Math.random() * 22 + 12, // Slightly larger to maintain visual impact
+            type: 'lightning',
+            glow: true,
+            rotation: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 0.5
         });
     }
+    
+    // Add lightning bolts - reduced from 40 to 10 particles
+    for (let i = 0; i < 5; i++) {
+        const angle = (i / 5) * Math.PI * 2;
+        for (let j = 0; j < 2; j++) {
+            particles.push({
+                x: x + Math.cos(angle) * j * 30,
+                y: y + Math.sin(angle) * j * 30,
+                vx: Math.cos(angle) * 18,
+                vy: Math.sin(angle) * 18,
+                life: 40 - j * 10,
+                maxLife: 40 - j * 10,
+                color: '#FFFFFF',
+                size: 20 - j * 4, // Larger bolts for better visibility
+                type: 'bolt',
+                glow: true
+            });
+        }
+    }
+    
+    // Add massive screen effects for lightning
+    addScreenShake(8, 300);
+    addScreenFlash('#FFFF00', 0.5, 200);
+    addChromaAberration(5, 250);
 }
 
-function createHitEffect(x, y, color1, color2) {
-    for (let i = 0; i < 25; i++) {
+function createShootEffect(x, y, color1, color2) {
+    // Optimized muzzle flash effect - reduced from 35 to 12 particles
+    for (let i = 0; i < 12; i++) {
         particles.push({
             x: x,
             y: y,
@@ -472,10 +565,71 @@ function createHitEffect(x, y, color1, color2) {
             life: 60,
             maxLife: 60,
             color: Math.random() > 0.5 ? color1 : color2,
-            size: Math.random() * 10 + 5,
-            type: 'hit'
+            size: Math.random() * 16 + 8, // Slightly larger particles for better visibility
+            type: 'shoot',
+            glow: true,
+            rotation: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 0.3
         });
     }
+    
+    // Add bright center flash
+    particles.push({
+        x: x,
+        y: y,
+        vx: 0,
+        vy: 0,
+        life: 20,
+        maxLife: 20,
+        color: '#FFFFFF',
+        size: 45, // Slightly larger flash for better impact
+        type: 'flash',
+        glow: true
+    });
+    
+    // Add screen shake for shooting
+    addScreenShake(2, 100);
+}
+
+function createHitEffect(x, y, color1, color2) {
+    // Optimized hit effect - reduced from 52 to 20 particles total
+    for (let i = 0; i < 15; i++) {
+        particles.push({
+            x: x + (Math.random() - 0.5) * 20,
+            y: y + (Math.random() - 0.5) * 20,
+            vx: (Math.random() - 0.5) * 35,
+            vy: (Math.random() - 0.5) * 35,
+            life: 80,
+            maxLife: 80,
+            color: Math.random() > 0.5 ? color1 : color2,
+            size: Math.random() * 18 + 10, // Larger particles for better visibility
+            type: 'hit',
+            glow: true,
+            rotation: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 0.4
+        });
+    }
+    
+    // Add impact ring - reduced from 12 to 5 particles
+    for (let i = 0; i < 5; i++) {
+        const angle = (i / 5) * Math.PI * 2;
+        particles.push({
+            x: x + Math.cos(angle) * 15,
+            y: y + Math.sin(angle) * 15,
+            vx: Math.cos(angle) * 25,
+            vy: Math.sin(angle) * 25,
+            life: 40,
+            maxLife: 40,
+            color: '#FFFFFF',
+            size: Math.random() * 12 + 8, // Larger ring particles
+            type: 'ring',
+            glow: true
+        });
+    }
+    
+    // Add screen shake and flash for hits
+    addScreenShake(4, 150);
+    addScreenFlash('#FFFFFF', 0.3, 100);
 }
 
 function createPowerUp() {
@@ -484,7 +638,6 @@ function createPowerUp() {
         { type: 'damage', color: '#FF4500', symbol: '💥', duration: 15000 },
         { type: 'shield', color: '#4169E1', symbol: '🛡️', duration: 12000 },
         { type: 'rapidFire', color: '#FFD700', symbol: '🔥', duration: 8000 },
-        { type: 'health', color: '#FF69B4', symbol: '❤️', duration: 0 },
         { type: 'doubleDamage', color: '#FF0000', symbol: '⚔️', duration: 20000 },
         { type: 'invincibility', color: '#FFFF00', symbol: '⭐', duration: 5000 },
         { type: 'megaSpeed', color: '#00FFFF', symbol: '🚀', duration: 6000 }
@@ -508,6 +661,45 @@ function createPowerUp() {
     });
 }
 
+function createFoodItem() {
+    const foodTypes = [
+        { type: 'apple', color: '#FF6B6B', symbol: '🍎', healAmount: 15 },
+        { type: 'banana', color: '#FFE135', symbol: '🍌', healAmount: 12 },
+        { type: 'orange', color: '#FF8C42', symbol: '🍊', healAmount: 18 },
+        { type: 'grapes', color: '#9B59B6', symbol: '🍇', healAmount: 10 },
+        { type: 'strawberry', color: '#E74C3C', symbol: '🍓', healAmount: 8 },
+        { type: 'watermelon', color: '#2ECC71', symbol: '🍉', healAmount: 25 },
+        { type: 'pineapple', color: '#F39C12', symbol: '🍍', healAmount: 20 },
+        { type: 'cherry', color: '#C0392B', symbol: '🍒', healAmount: 6 },
+        { type: 'peach', color: '#FFAB91', symbol: '🍑', healAmount: 14 },
+        { type: 'lemon', color: '#F1C40F', symbol: '🍋', healAmount: 5 },
+        { type: 'avocado', color: '#27AE60', symbol: '🥑', healAmount: 30 },
+        { type: 'carrot', color: '#E67E22', symbol: '🥕', healAmount: 16 },
+        { type: 'broccoli', color: '#16A085', symbol: '🥦', healAmount: 22 },
+        { type: 'bread', color: '#D4AC0D', symbol: '🍞', healAmount: 35 },
+        { type: 'cheese', color: '#F7DC6F', symbol: '🧀', healAmount: 28 }
+    ];
+    
+    const food = foodTypes[Math.floor(Math.random() * foodTypes.length)];
+    
+    powerUps.push({
+        x: Math.random() * (canvas.width - 200) + 100,
+        y: Math.random() * (canvas.height - 200) + 100,
+        type: food.type,
+        color: food.color,
+        symbol: food.symbol,
+        healAmount: food.healAmount,
+        duration: 0,
+        size: 25,
+        float: 0,
+        rotation: 0,
+        collected: false,
+        pulse: 0,
+        sparkles: [],
+        isFood: true
+    });
+}
+
 function updatePowerUps() {
     // Update active power-ups
     Object.keys(gameState.powerUps).forEach(type => {
@@ -518,6 +710,18 @@ function updatePowerUps() {
     
     // Update power-up items
     powerUps.forEach((powerUp, index) => {
+        // Magnet mode - attract items to player
+        if (player.magnetMode) {
+            const dx = player.x - powerUp.x;
+            const dy = player.y - powerUp.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < 200) {
+                const magnetForce = 5;
+                powerUp.x += (dx / distance) * magnetForce;
+                powerUp.y += (dy / distance) * magnetForce;
+            }
+        }
         if (!powerUp.collected) {
             powerUp.float += 0.1;
             powerUp.rotation += 0.05;
@@ -548,19 +752,11 @@ function updatePowerUps() {
             if (distance < player.size + powerUp.size) {
                 powerUp.collected = true;
                 
-                // Handle different power-up types
-                if (powerUp.type === 'health') {
-                    player.health = Math.min(player.maxHealth, player.health + 50);
-                } else if (powerUp.type === 'doubleDamage') {
-                    gameState.powerUps.damage = powerUp.duration;
-                } else if (powerUp.type === 'invincibility') {
-                    gameState.powerUps.shield = powerUp.duration;
-                    player.invincible = true;
-                    setTimeout(() => { player.invincible = false; }, powerUp.duration);
-                } else if (powerUp.type === 'megaSpeed') {
-                    gameState.powerUps.speed = powerUp.duration;
+                // Add to inventory instead of immediate activation
+                if (powerUp.isFood) {
+                    addToInventory(powerUp.type, powerUp.symbol, powerUp.color, 0, powerUp.healAmount);
                 } else {
-                    gameState.powerUps[powerUp.type] = powerUp.duration;
+                    addToInventory(powerUp.type, powerUp.symbol, powerUp.color, powerUp.duration);
                 }
                 
                 createPowerUpEffect(powerUp.x, powerUp.y, powerUp.color);
@@ -571,22 +767,62 @@ function updatePowerUps() {
 }
 
 function createPowerUpEffect(x, y, color) {
-    for (let i = 0; i < 30; i++) {
+    // Create main burst particles
+    for (let i = 0; i < 40; i++) {
         particles.push({
             x: x,
             y: y,
-            vx: (Math.random() - 0.5) * 20,
-            vy: (Math.random() - 0.5) * 20,
-            life: 80,
-            maxLife: 80,
+            vx: (Math.random() - 0.5) * 25,
+            vy: (Math.random() - 0.5) * 25,
+            life: 100,
+            maxLife: 100,
             color: color,
-            size: Math.random() * 10 + 5,
-            type: 'powerup'
+            size: Math.random() * 12 + 6,
+            type: 'powerup',
+            glow: true
         });
     }
+    
+    // Create sparkle ring effect
+    for (let i = 0; i < 20; i++) {
+        const angle = (i / 20) * Math.PI * 2;
+        const distance = 30 + Math.random() * 20;
+        particles.push({
+            x: x + Math.cos(angle) * distance,
+            y: y + Math.sin(angle) * distance,
+            vx: Math.cos(angle) * 8,
+            vy: Math.sin(angle) * 8,
+            life: 120,
+            maxLife: 120,
+            color: '#FFFFFF',
+            size: Math.random() * 8 + 4,
+            type: 'sparkle',
+            glow: true
+        });
+    }
+    
+    // Create center flash
+    particles.push({
+        x: x,
+        y: y,
+        vx: 0,
+        vy: 0,
+        life: 30,
+        maxLife: 30,
+        color: '#FFFFFF',
+        size: 50,
+        type: 'flash',
+        glow: true
+    });
 }
 
 function updateProjectiles() {
+    // Enforce projectile limit for performance
+    if (projectiles.length > MAX_PROJECTILES) {
+        // Remove oldest projectiles first
+        projectiles.splice(0, projectiles.length - MAX_PROJECTILES);
+    }
+    
     for (let i = projectiles.length - 1; i >= 0; i--) {
         const proj = projectiles[i];
         proj.x += proj.vx;
@@ -636,9 +872,10 @@ function updateProjectiles() {
                 createHitEffect(enemy.x, enemy.y, proj.color, enemy.color);
                 projectiles.splice(i, 1);
                 
-                // Special boss hit system: count hits instead of damage
+                // Apply damage to enemy
                 if (enemy.isBoss) {
-                    enemy.health -= 1; // Each hit = 1 point of damage for bosses
+                    // Boss hit system: each hit = 1 point of damage
+                    enemy.health -= 1;
                     console.log(`Boss hit! Hits taken: ${enemy.maxHealth - enemy.health + 1}/14`);
                 } else {
                     // Normal enemies use regular damage system
@@ -647,15 +884,24 @@ function updateProjectiles() {
                     console.log(`Enemy hit! Damage: ${damageToApply}, Enemy health: ${enemy.health}/${enemy.maxHealth}`);
                 }
                 
+                // Ensure enemy health doesn't regenerate and clamp it properly
+                enemy.health = Math.max(0, enemy.health); // Prevent negative health
+                enemy.health = Math.min(enemy.health, enemy.maxHealth); // Prevent over-healing
+                
                 if (enemy.health <= 0) {
                     createDeathEffect(enemy.x, enemy.y, enemy.color);
                     enemies.splice(j, 1);
                     
-                    // Chance to drop power-up (increases with room number)
+                    // Chance to drop power-up or food (increases with room number)
                     if (!gameState.inBossArena) {
-                        const dropChance = 0.3 + (gameState.currentRoom * 0.01);
+                        const dropChance = 0.4 + (gameState.currentRoom * 0.01);
                         if (Math.random() < dropChance) {
-                            createPowerUp();
+                            // 60% chance for food, 40% chance for power-up
+                            if (Math.random() < 0.6) {
+                                createFoodItem();
+                            } else {
+                                createPowerUp();
+                            }
                         }
                     }
                 }
@@ -666,34 +912,363 @@ function updateProjectiles() {
 }
 
 function createDeathEffect(x, y, color) {
-    for (let i = 0; i < 30; i++) {
+    // Optimized death explosion - reduced from 60 to 25 particles
+    for (let i = 0; i < 25; i++) {
         particles.push({
             x: x,
             y: y,
-            vx: (Math.random() - 0.5) * 30,
-            vy: (Math.random() - 0.5) * 30,
-            life: 100,
-            maxLife: 100,
+            vx: (Math.random() - 0.5) * 45,
+            vy: (Math.random() - 0.5) * 45,
+            life: 120,
+            maxLife: 120,
             color: color,
-            size: Math.random() * 12 + 6,
-            type: 'death'
+            size: Math.random() * 18 + 10,
+            type: 'death',
+            glow: true,
+            rotation: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 0.3
         });
     }
+    
+    // Add death shockwave
+    for (let i = 0; i < 20; i++) {
+        const angle = (i / 20) * Math.PI * 2;
+        particles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * 25,
+            vy: Math.sin(angle) * 25,
+            life: 60,
+            maxLife: 60,
+            color: '#FFFFFF',
+            size: Math.random() * 12 + 8,
+            type: 'shockwave',
+            glow: true
+        });
+    }
+    
+    // Add central explosion flash
+    particles.push({
+        x: x,
+        y: y,
+        vx: 0,
+        vy: 0,
+        life: 40,
+        maxLife: 40,
+        color: '#FFFFFF',
+        size: 80,
+        type: 'explosion_flash',
+        glow: true
+    });
+    
+    addScreenShake(6, 200);
+    addScreenFlash('#FFFFFF', 0.4, 150);
+}
+
+// Helper function to add particles with performance checks
+function addParticle(particleData) {
+    if (particles.length < MAX_PARTICLES && particleSpawnCooldown <= 0) {
+        particles.push(particleData);
+        particleSpawnCooldown = 1; // Small cooldown between spawns
+        return true;
+    }
+    return false;
+}
+
+// Clear all particles and projectiles for performance when changing rooms/boss fights
+function clearAllParticles() {
+    particles.length = 0;
+    explosionParticles.length = 0;
+    magicParticles.length = 0;
+    trailParticles.length = 0;
+    projectiles.length = 0;
+    backgroundParticles.length = 0; // Clear background particles that build up
+    ambientEffects.length = 0; // Clear ambient effects
+    screenEffects.length = 0; // Clear screen effects
+    
+    // Also clear background animation effects that could build up
+    if (backgroundAnimation) {
+        backgroundAnimation.stars.length = 0;
+        backgroundAnimation.floatingOrbs.length = 0;
+        backgroundAnimation.roomEffects.length = 0;
+    }
+    
+    console.log('Cleared all particles, projectiles, and background effects for performance optimization');
 }
 
 function updateParticles() {
+    // Monitor frame performance and adjust particle spawning
+    const currentTime = performance.now();
+    frameTime = currentTime - lastFrameTime;
+    lastFrameTime = currentTime;
+    
+    // If frame time is too high, reduce particle spawn rate
+    if (frameTime > FRAME_TIME_TARGET * 1.5) {
+        particleSpawnCooldown = Math.max(particleSpawnCooldown, 3);
+    } else if (particleSpawnCooldown > 0) {
+        particleSpawnCooldown--;
+    }
+    
+    // Enforce particle limit for performance (more aggressive when lagging)
+    const maxParticles = frameTime > FRAME_TIME_TARGET * 2 ? MAX_PARTICLES * 0.6 : MAX_PARTICLES;
+    if (particles.length > maxParticles) {
+        // Remove oldest particles first (from the beginning of array)
+        particles.splice(0, particles.length - maxParticles);
+    }
+    
+    // Batch particle updates for better performance
     for (let i = particles.length - 1; i >= 0; i--) {
         const particle = particles[i];
         particle.x += particle.vx;
         particle.y += particle.vy;
-        particle.vx *= 0.95;
-        particle.vy *= 0.95;
+        
+        // Enhanced particle physics with optimized checks
+        const particleType = particle.type;
+        if (particleType === 'lightning' || particleType === 'bolt') {
+            particle.vx *= 0.92; // Lightning particles slow down faster
+            particle.vy *= 0.92;
+        } else if (particleType === 'explosion_flash') {
+            // Explosion flash expands
+            particle.size *= 1.05;
+        } else {
+            particle.vx *= 0.95;
+            particle.vy *= 0.95;
+        }
+        
+        // Update rotation for spinning particles (optimized check)
+        if (particle.rotationSpeed !== undefined) {
+            particle.rotation += particle.rotationSpeed;
+        }
+        
         particle.life--;
         
         if (particle.life <= 0) {
             particles.splice(i, 1);
         }
     }
+    
+    // Update screen effects
+    updateScreenEffects();
+}
+
+// Screen Effect Functions
+function addScreenShake(intensity, duration) {
+    // Completely disabled - no screen shake at all
+    // This prevents any camera movement issues
+    return;
+}
+
+function addScreenFlash(color, alpha, duration) {
+    screenFlash.color = color;
+    screenFlash.alpha = Math.max(screenFlash.alpha, alpha);
+    screenFlash.duration = Math.max(screenFlash.duration, duration);
+}
+
+function addChromaAberration(intensity, duration) {
+    chromaAberration.intensity = Math.max(chromaAberration.intensity, intensity);
+    chromaAberration.duration = Math.max(chromaAberration.duration, duration);
+}
+
+function updateScreenEffects() {
+    // Update screen shake with bounds checking
+    if (screenShake.duration > 0) {
+        screenShake.x = (Math.random() - 0.5) * screenShake.intensity;
+        screenShake.y = (Math.random() - 0.5) * screenShake.intensity;
+        
+        // Clamp shake to prevent excessive screen displacement
+        screenShake.x = Math.max(-2, Math.min(2, screenShake.x));
+        screenShake.y = Math.max(-2, Math.min(2, screenShake.y));
+        
+        screenShake.duration -= 16;
+        screenShake.intensity *= 0.9; // Faster decay
+    } else {
+        screenShake.x = 0;
+        screenShake.y = 0;
+        screenShake.intensity = 0;
+    }
+    
+    // Update screen flash
+    if (screenFlash.duration > 0) {
+        screenFlash.duration -= 16;
+        screenFlash.alpha *= 0.92;
+    } else {
+        screenFlash.alpha = 0;
+    }
+    
+    // Update chroma aberration
+    if (chromaAberration.duration > 0) {
+        chromaAberration.duration -= 16;
+        chromaAberration.intensity *= 0.95;
+    } else {
+        chromaAberration.intensity = 0;
+    }
+}
+
+function applyScreenEffects() {
+    // Screen shake completely disabled - no canvas translation at all
+    // This ensures the screen never moves from center
+    return;
+}
+
+function renderScreenEffects() {
+    // Screen shake disabled - no transform resets needed
+    // Canvas stays perfectly centered at all times
+    
+    // Render screen flash
+    if (screenFlash.alpha > 0) {
+        ctx.fillStyle = `${screenFlash.color}${Math.floor(screenFlash.alpha * 255).toString(16).padStart(2, '0')}`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+}
+
+// Background Effects System
+function initializeBackgroundEffects() {
+    // Initialize floating stars
+    for (let i = 0; i < 50; i++) {
+        backgroundAnimation.stars.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: Math.random() * 2 + 1,
+            alpha: Math.random() * 0.8 + 0.2,
+            twinkleSpeed: Math.random() * 0.05 + 0.02,
+            twinklePhase: Math.random() * Math.PI * 2
+        });
+    }
+    
+    // Initialize floating orbs
+    for (let i = 0; i < 8; i++) {
+        backgroundAnimation.floatingOrbs.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: Math.random() * 30 + 20,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: (Math.random() - 0.5) * 0.5,
+            alpha: Math.random() * 0.3 + 0.1,
+            color: ['#4169E1', '#9932CC', '#FFD700', '#00CED1'][Math.floor(Math.random() * 4)],
+            pulse: Math.random() * Math.PI * 2,
+            pulseSpeed: Math.random() * 0.03 + 0.01
+        });
+    }
+}
+
+function updateBackgroundEffects() {
+    backgroundAnimation.time += 0.016;
+    
+    // Prevent background effects from building up too much
+    if (backgroundAnimation.stars.length > 60) {
+        backgroundAnimation.stars.splice(0, backgroundAnimation.stars.length - 50);
+    }
+    if (backgroundAnimation.floatingOrbs.length > 12) {
+        backgroundAnimation.floatingOrbs.splice(0, backgroundAnimation.floatingOrbs.length - 8);
+    }
+    
+    // Update twinkling stars
+    backgroundAnimation.stars.forEach(star => {
+        star.twinklePhase += star.twinkleSpeed;
+        star.alpha = 0.3 + Math.sin(star.twinklePhase) * 0.5;
+    });
+    
+    // Update floating orbs
+    backgroundAnimation.floatingOrbs.forEach(orb => {
+        orb.x += orb.vx;
+        orb.y += orb.vy;
+        orb.pulse += orb.pulseSpeed;
+        
+        // Bounce off edges
+        if (orb.x < 0 || orb.x > canvas.width) orb.vx *= -1;
+        if (orb.y < 0 || orb.y > canvas.height) orb.vy *= -1;
+        
+        // Keep in bounds
+        orb.x = Math.max(0, Math.min(canvas.width, orb.x));
+        orb.y = Math.max(0, Math.min(canvas.height, orb.y));
+    });
+}
+
+function drawBackgroundEffects() {
+    // Draw twinkling stars
+    backgroundAnimation.stars.forEach(star => {
+        ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Add sparkle effect
+        if (star.alpha > 0.7) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${(star.alpha - 0.7) * 2})`;
+            ctx.beginPath();
+            ctx.arc(star.x, star.y, star.size * 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    });
+    
+    // Draw floating orbs
+    backgroundAnimation.floatingOrbs.forEach(orb => {
+        const pulseSize = orb.size + Math.sin(orb.pulse) * 5;
+        const pulseAlpha = orb.alpha + Math.sin(orb.pulse) * 0.1;
+        
+        ctx.shadowColor = orb.color;
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = `${orb.color}${Math.floor(pulseAlpha * 255).toString(16).padStart(2, '0')}`;
+        ctx.beginPath();
+        ctx.arc(orb.x, orb.y, pulseSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    });
+}
+
+function createRoomSpecificEffects(room) {
+    // Add room-specific floating particles based on theme
+    // Only create if we don't have too many background particles already
+    if (Math.random() < 0.3 && backgroundParticles.length < 50) {
+        const effect = {
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 2,
+            vy: (Math.random() - 0.5) * 2,
+            size: Math.random() * 8 + 4,
+            life: 300 + Math.random() * 200,
+            maxLife: 300 + Math.random() * 200,
+            color: room.particle,
+            alpha: Math.random() * 0.6 + 0.2,
+            type: 'ambient_room'
+        };
+        
+        backgroundParticles.push(effect);
+    }
+}
+
+function updateBackgroundParticles() {
+    // Prevent background particle buildup - limit to 100 particles max
+    if (backgroundParticles.length > 100) {
+        backgroundParticles.splice(0, backgroundParticles.length - 100);
+    }
+    
+    for (let i = backgroundParticles.length - 1; i >= 0; i--) {
+        const particle = backgroundParticles[i];
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.life--;
+        
+        // Fade out over time
+        particle.alpha = (particle.life / particle.maxLife) * 0.6;
+        
+        if (particle.life <= 0 || particle.x < -50 || particle.x > canvas.width + 50 || 
+            particle.y < -50 || particle.y > canvas.height + 50) {
+            backgroundParticles.splice(i, 1);
+        }
+    }
+}
+
+function drawBackgroundParticles() {
+    backgroundParticles.forEach(particle => {
+        ctx.fillStyle = `${particle.color}${Math.floor(particle.alpha * 255).toString(16).padStart(2, '0')}`;
+        ctx.shadowColor = particle.color;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    });
 }
 
 function createEnemy() {
@@ -719,26 +1294,26 @@ function createEnemy() {
             break;
     }
     
-    // Different enemy types with fun colors and scaling difficulty
+    // Different enemy types with MUCH more reasonable health values
     const enemyTypes = [
-        { color: '#4B0082', size: 25, speed: 1.5, health: 40, name: 'Shadow' },
-        { color: '#FF4500', size: 20, speed: 2.5, health: 30, name: 'Fire' },
-        { color: '#00CED1', size: 28, speed: 1.8, health: 50, name: 'Ice' },
-        { color: '#32CD32', size: 22, speed: 2.2, health: 35, name: 'Poison' },
-        { color: '#9932CC', size: 26, speed: 2.0, health: 45, name: 'Magic' },
-        { color: '#FFD700', size: 30, speed: 1.2, health: 80, name: 'Golden' },
-        { color: '#FF69B4', size: 18, speed: 3.0, health: 25, name: 'Pink' },
-        { color: '#00FF00', size: 32, speed: 1.0, health: 100, name: 'Tank' },
-        { color: '#FF1493', size: 15, speed: 3.5, health: 20, name: 'Speed' },
-        { color: '#8A2BE2', size: 35, speed: 0.8, health: 120, name: 'Boss' }
+        { color: '#4B0082', size: 25, speed: 1.5, health: 60, name: 'Shadow' },
+        { color: '#FF4500', size: 20, speed: 2.5, health: 45, name: 'Fire' },
+        { color: '#00CED1', size: 28, speed: 1.8, health: 75, name: 'Ice' },
+        { color: '#32CD32', size: 22, speed: 2.2, health: 50, name: 'Poison' },
+        { color: '#9932CC', size: 26, speed: 2.0, health: 65, name: 'Magic' },
+        { color: '#FFD700', size: 30, speed: 1.2, health: 90, name: 'Golden' },
+        { color: '#FF69B4', size: 18, speed: 3.0, health: 40, name: 'Pink' },
+        { color: '#00FF00', size: 32, speed: 1.0, health: 120, name: 'Tank' },
+        { color: '#FF1493', size: 15, speed: 3.5, health: 35, name: 'Speed' },
+        { color: '#8A2BE2', size: 35, speed: 0.8, health: 150, name: 'Elite' }
     ];
     
     const enemyType = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
     
-    // Scale difficulty based on room number
-    const difficultyMultiplier = 1 + (gameState.currentRoom * 0.1);
-    const scaledHealth = Math.floor(enemyType.health * difficultyMultiplier);
-    const scaledSpeed = enemyType.speed * (1 + (gameState.currentRoom * 0.05));
+    // Scale difficulty based on room number - MUCH more reasonable
+    const difficultyMultiplier = 1 + (gameState.currentRoom * 0.005); // Much smaller scaling
+    const scaledHealth = Math.min(Math.floor(enemyType.health * difficultyMultiplier), 180); // Hard cap at 180 HP (6 hits max with weakest weapon)
+    const scaledSpeed = enemyType.speed * (1 + (gameState.currentRoom * 0.005)); // Much slower speed scaling
     
     enemies.push({
         x: x,
@@ -757,6 +1332,14 @@ function createEnemy() {
 }
 
 function updateEnemies() {
+    // Remove dead enemies first to prevent any issues
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        if (enemies[i].health <= 0) {
+            createDeathEffect(enemies[i].x, enemies[i].y, enemies[i].color);
+            enemies.splice(i, 1);
+        }
+    }
+    
     enemies.forEach(enemy => {
         // Move towards player
         const dx = player.x - enemy.x;
@@ -814,6 +1397,18 @@ function createKey() {
 function updateKeys() {
     keys.forEach((key, index) => {
         if (!key.collected) {
+            // Magnet mode - attract keys to player
+            if (player.magnetMode) {
+                const dx = player.x - key.x;
+                const dy = player.y - key.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 200) {
+                    const magnetForce = 5;
+                    key.x += (dx / distance) * magnetForce;
+                    key.y += (dy / distance) * magnetForce;
+                }
+            }
             key.float += 0.1;
             key.glow += 0.15;
             key.rotation += 0.03;
@@ -911,6 +1506,9 @@ function acceptBossFight() {
     const bossDialog = document.getElementById('bossDialog');
     bossDialog.style.display = 'none';
     
+    // Clear all particles before boss fight for performance
+    clearAllParticles();
+    
     gameState.inBossArena = true;
     gameState.keys = 0; // Clear keys as mentioned
     keyCountElement.textContent = '0';
@@ -997,7 +1595,8 @@ function createEvolvedBoss() {
 function updateBossArena() {
     // Special boss arena logic
     if (enemies.length === 0 && gameState.inBossArena) {
-        // Boss defeated! Show power upgrade choice immediately
+        // Boss defeated! Clear particles and show power upgrade choice
+        clearAllParticles();
         gameState.inBossArena = false;
         gameRunning = false; // Pause game for choice
         
@@ -1075,7 +1674,8 @@ function createBossAreaAttack(boss) {
 }
 
 function createVictoryEffect() {
-    for (let i = 0; i < 100; i++) {
+    // Optimized victory effect - reduced from 100 to 35 particles
+    for (let i = 0; i < 35; i++) {
         particles.push({
             x: canvas.width / 2,
             y: canvas.height / 2,
@@ -1084,7 +1684,7 @@ function createVictoryEffect() {
             life: 150,
             maxLife: 150,
             color: ['#FFD700', '#FFFF00', '#FFFFFF', '#87CEEB'][Math.floor(Math.random() * 4)],
-            size: Math.random() * 15 + 10,
+            size: Math.random() * 20 + 15, // Larger particles for better impact
             type: 'victory'
         });
     }
@@ -1117,13 +1717,8 @@ function upgradePower(powerType) {
     // Upgrade the chosen power
     gameState.powerUpgrades[powerType]++;
     
-    // Also grant lightning power as bonus
-    gameState.hasLightningPower = true;
-    const lightningBtn = document.getElementById('lightning-btn');
-    lightningBtn.style.display = 'inline-block';
-    
-    // Show touch lightning button for iPad/mobile
-    touchLightningBtn.style.display = 'flex';
+    // Add lightning power to inventory instead
+    addToInventory('lightning', '⚡', '#FFFF00', 0, null, true); // Special lightning power
     
     // Reset boss fight flag so it can trigger again
     gameState.bossFightOffered = false;
@@ -1141,7 +1736,8 @@ function upgradePower(powerType) {
 }
 
 function createUpgradeEffect() {
-    for (let i = 0; i < 80; i++) {
+    // Optimized upgrade effect - reduced from 80 to 30 particles
+    for (let i = 0; i < 30; i++) {
         particles.push({
             x: canvas.width / 2,
             y: canvas.height / 2,
@@ -1159,6 +1755,12 @@ function createUpgradeEffect() {
 function loadRoom(roomIndex) {
     gameState.currentRoom = roomIndex;
     const room = rooms[roomIndex];
+    
+    // Clear all particles when changing rooms for performance
+    clearAllParticles();
+    
+    // Check for level progression and super power unlocks
+    checkLevelProgression();
     
     // Clear existing entities
     enemies = [];
@@ -1222,11 +1824,6 @@ function updatePowers() {
             `power-btn ${lightningCooldown ? 'cooldown' : ''}`;
     }
     
-    // Update touch power buttons with selection state
-    touchIceBtn.className = `touch-power-btn ${iceCooldown ? 'cooldown' : ''} ${selectedPower === 'ice' ? 'selected' : ''}`;
-    touchFireBtn.className = `touch-power-btn ${fireCooldown ? 'cooldown' : ''} ${selectedPower === 'fire' ? 'selected' : ''}`;
-    touchCombinedBtn.className = `touch-power-btn ${combinedCooldown ? 'cooldown' : ''} ${selectedPower === 'combined' ? 'selected' : ''}`;
-    
     // Update lightning touch button if available
     if (gameState.hasLightningPower) {
         touchLightningBtn.className = `touch-power-btn ${lightningCooldown ? 'cooldown' : ''} ${selectedPower === 'lightning' ? 'selected' : ''}`;
@@ -1234,11 +1831,18 @@ function updatePowers() {
 }
 
 function updatePlayer() {
-    // Movement with speed boost
+    // Movement with speed boost and lag compensation
     let speedBoost = 0;
     if (gameState.powerUps.speed > 0) speedBoost += 3;
     if (gameState.powerUps.megaSpeed > 0) speedBoost += 5;
-    const currentSpeed = player.speed + speedBoost;
+    
+    let currentSpeed = player.speed + speedBoost;
+    
+    // Lag compensation - add speed boost if frame time is high
+    if (frameTime > FRAME_TIME_TARGET * 1.5) {
+        currentSpeed *= 1.8; // 80% speed boost when lagging
+        console.log('Lag detected - applying speed boost!');
+    }
     
     player.direction.x = 0;
     player.direction.y = 0;
@@ -1262,79 +1866,220 @@ function updatePlayer() {
     player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
     player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
     
-    // Mouse shooting (desktop)
+    // Update laser beam if active
+    if (player.laserBeam) {
+        player.laserBeam.life--;
+        if (player.laserBeam.life <= 0) {
+            player.laserBeam = null;
+        }
+    }
+    
+    // Mouse shooting (desktop) - use equipped super powers
     if (mousePressed.left && mousePressed.right) {
-        shootCombined();
+        // Both buttons - use slot 3 (combined by default)
+        useSuperPower(2);
     } else if (mousePressed.left) {
-        shootIce();
+        // Left button - use slot 1 (ice by default)
+        useSuperPower(0);
     } else if (mousePressed.right) {
-        shootFire();
+        // Right button - use slot 2 (fire by default)
+        useSuperPower(1);
     }
     
     // Manual shooting for mobile - handled in touchstart event
 }
 
 function drawPlayer() {
-    // Player glow effect
-    const glowIntensity = Math.sin(player.glow) * 0.4 + 0.6;
-    ctx.shadowColor = '#4169E1';
-    ctx.shadowBlur = 25 * glowIntensity;
+    ctx.save();
     
-    // Shield effect
+    // Enhanced player glow effect with multiple layers
+    const glowIntensity = Math.sin(player.glow) * 0.4 + 0.6;
+    const pulseSize = player.size + Math.sin(player.glow * 2) * 3;
+    
+    // Outer glow
+    ctx.shadowColor = '#4169E1';
+    ctx.shadowBlur = 40 * glowIntensity;
+    
+    // Enhanced shield effect with animation
     if (gameState.powerUps.shield > 0) {
-        ctx.strokeStyle = '#4169E1';
-        ctx.lineWidth = 3;
+        const shieldPulse = Math.sin(gameState.gameTime * 0.1) * 0.3 + 0.7;
+        ctx.strokeStyle = `rgba(65, 105, 225, ${shieldPulse})`;
+        ctx.lineWidth = 4;
+        ctx.shadowColor = '#4169E1';
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.size + 15 + Math.sin(gameState.gameTime * 0.08) * 5, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Inner shield ring
+        ctx.strokeStyle = `rgba(135, 206, 235, ${shieldPulse * 0.6})`;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(player.x, player.y, player.size + 10, 0, Math.PI * 2);
         ctx.stroke();
     }
     
-    // Player body with gradient
-    const gradient = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, player.size);
-    gradient.addColorStop(0, '#87CEEB');
-    gradient.addColorStop(0.7, '#4169E1');
-    gradient.addColorStop(1, '#191970');
+    // Enhanced player body with multi-layer gradient
+    const gradient = ctx.createRadialGradient(
+        player.x - player.size * 0.3, 
+        player.y - player.size * 0.3, 
+        0, 
+        player.x, 
+        player.y, 
+        pulseSize
+    );
+    gradient.addColorStop(0, '#FFFFFF');
+    gradient.addColorStop(0.2, '#87CEEB');
+    gradient.addColorStop(0.6, '#4169E1');
+    gradient.addColorStop(0.9, '#191970');
+    gradient.addColorStop(1, '#000080');
     
+    // Main body
     ctx.fillStyle = gradient;
+    ctx.shadowBlur = 30 * glowIntensity;
     ctx.beginPath();
-    ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+    ctx.arc(player.x, player.y, pulseSize, 0, Math.PI * 2);
     ctx.fill();
     
-    // Player direction indicator
+    // Inner highlight
+    const highlightGradient = ctx.createRadialGradient(
+        player.x - player.size * 0.4, 
+        player.y - player.size * 0.4, 
+        0, 
+        player.x, 
+        player.y, 
+        player.size * 0.6
+    );
+    highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+    highlightGradient.addColorStop(0.5, 'rgba(135, 206, 235, 0.4)');
+    highlightGradient.addColorStop(1, 'rgba(135, 206, 235, 0)');
+    
+    ctx.fillStyle = highlightGradient;
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.size * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Enhanced direction indicator with trail
     const angle = Math.atan2(player.mouseY - player.y, player.mouseX - player.x);
-    const indicatorX = player.x + Math.cos(angle) * (player.size + 12);
-    const indicatorY = player.y + Math.sin(angle) * (player.size + 12);
+    const indicatorDistance = player.size + 15;
+    const indicatorX = player.x + Math.cos(angle) * indicatorDistance;
+    const indicatorY = player.y + Math.sin(angle) * indicatorDistance;
     
-    ctx.fillStyle = '#FFD700';
+    // Direction indicator trail
+    for (let i = 0; i < 3; i++) {
+        const trailDistance = indicatorDistance - i * 5;
+        const trailX = player.x + Math.cos(angle) * trailDistance;
+        const trailY = player.y + Math.sin(angle) * trailDistance;
+        const trailAlpha = 0.3 - i * 0.1;
+        
+        ctx.fillStyle = `rgba(255, 215, 0, ${trailAlpha})`;
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(trailX, trailY, 8 - i * 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Main direction indicator
+    const indicatorGradient = ctx.createRadialGradient(indicatorX, indicatorY, 0, indicatorX, indicatorY, 12);
+    indicatorGradient.addColorStop(0, '#FFFFFF');
+    indicatorGradient.addColorStop(0.3, '#FFD700');
+    indicatorGradient.addColorStop(1, '#FFA500');
+    
+    ctx.fillStyle = indicatorGradient;
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 20;
     ctx.beginPath();
-    ctx.arc(indicatorX, indicatorY, 10, 0, Math.PI * 2);
+    ctx.arc(indicatorX, indicatorY, 12, 0, Math.PI * 2);
     ctx.fill();
     
+    // Draw laser beam if active
+    if (player.laserBeam) {
+        const beam = player.laserBeam;
+        const alpha = beam.life / beam.maxLife;
+        
+        // Draw thick red laser beam
+        ctx.strokeStyle = `rgba(255, 0, 0, ${alpha})`;
+        ctx.lineWidth = beam.width;
+        ctx.shadowColor = '#FF0000';
+        ctx.shadowBlur = 30;
+        ctx.lineCap = 'round';
+        
+        ctx.beginPath();
+        ctx.moveTo(beam.startX, beam.startY);
+        ctx.lineTo(beam.endX, beam.endY);
+        ctx.stroke();
+        
+        // Draw inner bright beam
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
+        ctx.lineWidth = beam.width * 0.4;
+        ctx.shadowBlur = 15;
+        
+        ctx.beginPath();
+        ctx.moveTo(beam.startX, beam.startY);
+        ctx.lineTo(beam.endX, beam.endY);
+        ctx.stroke();
+    }
+    
+    ctx.restore();
+    
+    // Enhanced health bar with gradient and glow
+    const healthBarWidth = 90;
+    const healthBarHeight = 14;
+    const healthPercentage = player.health / player.maxHealth;
+    const barY = player.y - player.size - 30;
+    
+    // Health bar shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(player.x - healthBarWidth/2 + 2, barY + 2, healthBarWidth, healthBarHeight);
+    
+    // Health bar background with gradient
+    const bgGradient = ctx.createLinearGradient(player.x - healthBarWidth/2, barY, player.x + healthBarWidth/2, barY);
+    bgGradient.addColorStop(0, '#8B0000');
+    bgGradient.addColorStop(1, '#FF6B6B');
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(player.x - healthBarWidth/2, barY, healthBarWidth, healthBarHeight);
+    
+    // Health bar fill with dynamic color
+    let healthColor1, healthColor2;
+    if (healthPercentage > 0.6) {
+        healthColor1 = '#00FF00';
+        healthColor2 = '#32CD32';
+    } else if (healthPercentage > 0.3) {
+        healthColor1 = '#FFD700';
+        healthColor2 = '#FFA500';
+    } else {
+        healthColor1 = '#FF4500';
+        healthColor2 = '#FF0000';
+    }
+    
+    const healthGradient = ctx.createLinearGradient(player.x - healthBarWidth/2, barY, player.x + healthBarWidth/2, barY);
+    healthGradient.addColorStop(0, healthColor1);
+    healthGradient.addColorStop(1, healthColor2);
+    
+    ctx.fillStyle = healthGradient;
+    ctx.shadowColor = healthColor1;
+    ctx.shadowBlur = 10;
+    ctx.fillRect(player.x - healthBarWidth/2, barY, healthBarWidth * healthPercentage, healthBarHeight);
     ctx.shadowBlur = 0;
     
-    // Health bar
-    const healthBarWidth = 80;
-    const healthBarHeight = 12;
-    const healthPercentage = player.health / player.maxHealth;
-    
-    // Health bar background
-    ctx.fillStyle = '#FF6B6B';
-    ctx.fillRect(player.x - healthBarWidth/2, player.y - player.size - 25, healthBarWidth, healthBarHeight);
-    
-    // Health bar fill
-    ctx.fillStyle = '#00FF00';
-    ctx.fillRect(player.x - healthBarWidth/2, player.y - player.size - 25, healthBarWidth * healthPercentage, healthBarHeight);
-    
-    // Health bar border
+    // Health bar border with glow
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = 2;
-    ctx.strokeRect(player.x - healthBarWidth/2, player.y - player.size - 25, healthBarWidth, healthBarHeight);
+    ctx.shadowColor = '#FFFFFF';
+    ctx.shadowBlur = 5;
+    ctx.strokeRect(player.x - healthBarWidth/2, barY, healthBarWidth, healthBarHeight);
+    ctx.shadowBlur = 0;
     
-    // Health text
+    // Enhanced health text with glow
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = '12px Arial';
+    ctx.font = 'bold 12px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(`${Math.max(0, Math.floor(player.health))}/${player.maxHealth}`, player.x, player.y - player.size - 35);
+    ctx.shadowColor = '#000000';
+    ctx.shadowBlur = 3;
+    ctx.fillText(`${Math.max(0, Math.floor(player.health))}/${player.maxHealth}`, player.x, barY - 8);
+    ctx.shadowBlur = 0;
 }
 
 function drawPowerUps() {
@@ -1386,49 +2131,127 @@ function drawPowerUps() {
 
 function drawEnemies() {
     enemies.forEach(enemy => {
-        // Enemy trail effect
+        ctx.save();
+        
+        // Enhanced enemy trail effect
         enemy.trail.forEach((trailPoint, index) => {
-            const alpha = (index / enemy.trail.length) * 0.4;
+            const alpha = (index / enemy.trail.length) * 0.6;
+            const trailSize = enemy.size * (index / enemy.trail.length) * 0.8;
+            
             ctx.fillStyle = `${enemy.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
+            ctx.shadowColor = enemy.color;
+            ctx.shadowBlur = 15 * alpha;
             ctx.beginPath();
-            ctx.arc(trailPoint.x, trailPoint.y, enemy.size * (index / enemy.trail.length), 0, Math.PI * 2);
+            ctx.arc(trailPoint.x, trailPoint.y, trailSize, 0, Math.PI * 2);
             ctx.fill();
         });
         
-        // Enemy glow effect
+        // Enhanced enemy glow with pulsing
         const glowIntensity = Math.sin(enemy.pulse) * 0.5 + 0.5;
-        ctx.shadowColor = enemy.color;
-        ctx.shadowBlur = 20 * glowIntensity;
+        const enemySize = enemy.size + Math.sin(enemy.pulse * 1.5) * 2;
         
-        // Enemy body with rotation
-        ctx.save();
+        // Outer glow ring
+        ctx.shadowColor = enemy.color;
+        ctx.shadowBlur = 35 * glowIntensity;
+        
+        // Enemy body with enhanced rotation and gradients
         ctx.translate(enemy.x, enemy.y);
         ctx.rotate(enemy.rotation);
         
-        // Create gradient for enemy
-        const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, enemy.size);
-        gradient.addColorStop(0, '#FFFFFF');
-        gradient.addColorStop(0.3, enemy.color);
-        gradient.addColorStop(1, '#000000');
+        // Multi-layer enemy gradient
+        const outerGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, enemySize);
+        outerGradient.addColorStop(0, '#FFFFFF');
+        outerGradient.addColorStop(0.2, enemy.color);
+        outerGradient.addColorStop(0.7, enemy.color);
+        outerGradient.addColorStop(1, '#000000');
         
-        ctx.fillStyle = gradient;
+        // Main enemy body
+        ctx.fillStyle = outerGradient;
         ctx.beginPath();
-        ctx.arc(0, 0, enemy.size, 0, Math.PI * 2);
+        ctx.arc(0, 0, enemySize, 0, Math.PI * 2);
         ctx.fill();
         
-        ctx.restore();
+        // Inner highlight
+        const innerGradient = ctx.createRadialGradient(-enemySize * 0.3, -enemySize * 0.3, 0, 0, 0, enemySize * 0.5);
+        innerGradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+        innerGradient.addColorStop(0.5, `${enemy.color}40`);
+        innerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        
+        ctx.fillStyle = innerGradient;
         ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(0, 0, enemySize * 0.5, 0, Math.PI * 2);
+        ctx.fill();
         
-        // Health bar
-        const healthBarWidth = 60;
-        const healthBarHeight = 6;
+        // Boss-specific enhancements
+        if (enemy.isBoss) {
+            // Boss crown effect
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            ctx.arc(0, 0, enemySize + 8, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Boss energy rings
+            for (let i = 0; i < 3; i++) {
+                const ringAlpha = 0.3 - i * 0.1;
+                const ringRadius = enemySize + 15 + i * 8;
+                ctx.strokeStyle = `rgba(255, 215, 0, ${ringAlpha})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, 0, ringRadius + Math.sin(gameState.gameTime * 0.05 + i) * 3, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+        
+        ctx.restore();
+        
+        // Enhanced health bar with gradient and animation
+        const healthBarWidth = enemy.isBoss ? 80 : 65;
+        const healthBarHeight = enemy.isBoss ? 8 : 6;
         const healthPercentage = enemy.health / enemy.maxHealth;
+        const barY = enemy.y - enemy.size - (enemy.isBoss ? 25 : 20);
         
-        ctx.fillStyle = '#FF6B6B';
-        ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemy.size - 18, healthBarWidth, healthBarHeight);
+        // Health bar shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(enemy.x - healthBarWidth/2 + 1, barY + 1, healthBarWidth, healthBarHeight);
         
-        ctx.fillStyle = '#00FF00';
-        ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemy.size - 18, healthBarWidth * healthPercentage, healthBarHeight);
+        // Health bar background
+        const bgGradient = ctx.createLinearGradient(enemy.x - healthBarWidth/2, barY, enemy.x + healthBarWidth/2, barY);
+        bgGradient.addColorStop(0, '#8B0000');
+        bgGradient.addColorStop(1, '#FF6B6B');
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(enemy.x - healthBarWidth/2, barY, healthBarWidth, healthBarHeight);
+        
+        // Health bar fill with enemy color
+        const healthGradient = ctx.createLinearGradient(enemy.x - healthBarWidth/2, barY, enemy.x + healthBarWidth/2, barY);
+        healthGradient.addColorStop(0, '#00FF00');
+        healthGradient.addColorStop(0.5, '#32CD32');
+        healthGradient.addColorStop(1, enemy.color);
+        
+        ctx.fillStyle = healthGradient;
+        ctx.shadowColor = '#00FF00';
+        ctx.shadowBlur = 5;
+        ctx.fillRect(enemy.x - healthBarWidth/2, barY, healthBarWidth * healthPercentage, healthBarHeight);
+        
+        // Health bar border
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+        ctx.strokeRect(enemy.x - healthBarWidth/2, barY, healthBarWidth, healthBarHeight);
+        
+        // Boss name display
+        if (enemy.isBoss) {
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = '#000000';
+            ctx.shadowBlur = 3;
+            ctx.fillText(enemy.name, enemy.x, barY - 10);
+            ctx.shadowBlur = 0;
+        }
     });
 }
 
@@ -1483,33 +2306,107 @@ function drawKeys() {
 
 function drawProjectiles() {
     projectiles.forEach(proj => {
-        // Draw trail with fading
+        ctx.save();
+        
+        // Enhanced trail with multiple layers
         proj.trail.forEach((trailPoint, index) => {
-            const alpha = (index / proj.trail.length) * 0.7;
-            ctx.fillStyle = `${proj.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
+            const alpha = (index / proj.trail.length) * 0.8;
+            const trailSize = proj.size * (index / proj.trail.length) * 0.9;
+            
+            // Outer trail glow
+            ctx.fillStyle = `${proj.color}${Math.floor(alpha * 0.3 * 255).toString(16).padStart(2, '0')}`;
+            ctx.shadowColor = proj.color;
+            ctx.shadowBlur = 20 * alpha;
             ctx.beginPath();
-            ctx.arc(trailPoint.x, trailPoint.y, proj.size * (index / proj.trail.length), 0, Math.PI * 2);
+            ctx.arc(trailPoint.x, trailPoint.y, trailSize * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner trail core
+            ctx.fillStyle = `${proj.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
+            ctx.shadowBlur = 10 * alpha;
+            ctx.beginPath();
+            ctx.arc(trailPoint.x, trailPoint.y, trailSize, 0, Math.PI * 2);
             ctx.fill();
         });
         
-        // Draw projectile with rotation
-        ctx.save();
+        // Enhanced projectile rendering
         ctx.translate(proj.x, proj.y);
         ctx.rotate(proj.rotation);
         
+        // Outer glow
         ctx.shadowColor = proj.color;
-        ctx.shadowBlur = 25;
+        ctx.shadowBlur = 30;
         
-        // Projectile gradient
-        const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, proj.size);
-        gradient.addColorStop(0, '#FFFFFF');
-        gradient.addColorStop(0.5, proj.color);
-        gradient.addColorStop(1, '#000000');
+        // Multi-layer projectile gradient
+        const outerGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, proj.size * 1.2);
+        outerGradient.addColorStop(0, '#FFFFFF');
+        outerGradient.addColorStop(0.3, proj.color);
+        outerGradient.addColorStop(0.7, proj.color);
+        outerGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
         
-        ctx.fillStyle = gradient;
+        // Outer projectile layer
+        ctx.fillStyle = outerGradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, proj.size * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Inner core gradient
+        const coreGradient = ctx.createRadialGradient(-proj.size * 0.3, -proj.size * 0.3, 0, 0, 0, proj.size);
+        coreGradient.addColorStop(0, '#FFFFFF');
+        coreGradient.addColorStop(0.4, proj.color);
+        coreGradient.addColorStop(1, '#000000');
+        
+        // Main projectile body
+        ctx.fillStyle = coreGradient;
+        ctx.shadowBlur = 20;
         ctx.beginPath();
         ctx.arc(0, 0, proj.size, 0, Math.PI * 2);
         ctx.fill();
+        
+        // Special effects for different projectile types
+        if (proj.type === 'lightning') {
+            // Lightning sparkles
+            for (let i = 0; i < 3; i++) {
+                const sparkleAngle = Math.random() * Math.PI * 2;
+                const sparkleDistance = Math.random() * proj.size;
+                const sparkleX = Math.cos(sparkleAngle) * sparkleDistance;
+                const sparkleY = Math.sin(sparkleAngle) * sparkleDistance;
+                
+                ctx.fillStyle = '#FFFFFF';
+                ctx.shadowColor = '#FFFF00';
+                ctx.shadowBlur = 15;
+                ctx.beginPath();
+                ctx.arc(sparkleX, sparkleY, Math.random() * 3 + 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        } else if (proj.type === 'combined') {
+            // Combined power swirl effect
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2 + proj.rotation * 2;
+                const radius = proj.size * 0.7;
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+        
+        // Energy pulse for boss projectiles
+        if (proj.fromBoss) {
+            const pulseSize = proj.size + Math.sin(gameState.gameTime * 0.2) * 3;
+            ctx.strokeStyle = 'rgba(139, 0, 0, 0.8)';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#8B0000';
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            ctx.arc(0, 0, pulseSize, 0, Math.PI * 2);
+            ctx.stroke();
+        }
         
         ctx.restore();
         ctx.shadowBlur = 0;
@@ -1519,22 +2416,76 @@ function drawProjectiles() {
 function drawParticles() {
     particles.forEach(particle => {
         const alpha = particle.life / particle.maxLife;
-        const size = particle.size * alpha;
+        let size = particle.size * alpha;
         
-        ctx.fillStyle = `${particle.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
-        ctx.beginPath();
-        ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.save();
         
-        // Add glow effect for certain particle types
-        if (particle.type === 'collect' || particle.type === 'death' || particle.type === 'powerup') {
+        // Special handling for different particle types
+        if (particle.type === 'flash' || particle.type === 'explosion_flash') {
+            size = particle.size * (1 - alpha); // Flash gets bigger as it fades
+        }
+        
+        // Apply rotation if particle has it
+        if (particle.rotation !== undefined) {
+            ctx.translate(particle.x, particle.y);
+            ctx.rotate(particle.rotation);
+            ctx.translate(-particle.x, -particle.y);
+        }
+        
+        // Optimized glow effects - reduced checks and calculations
+        if (particle.glow && alpha > 0.1) { // Only glow for visible particles
             ctx.shadowColor = particle.color;
-            ctx.shadowBlur = 15 * alpha;
+            
+            // Simplified shadow blur calculation
+            let shadowBlur = 15 * alpha; // Reduced base blur
+            const type = particle.type;
+            if (type === 'flash' || type === 'explosion_flash') {
+                shadowBlur = 40 * alpha; // Reduced from 60
+                ctx.shadowColor = '#FFFFFF';
+            } else if (type === 'lightning' || type === 'bolt') {
+                shadowBlur = 20 * alpha; // Reduced from 30
+                ctx.shadowColor = '#FFFF00';
+            }
+            
+            ctx.shadowBlur = Math.min(shadowBlur, 25); // Cap shadow blur for performance
+        }
+        
+        // Enhanced particle shapes
+        ctx.fillStyle = `${particle.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
+        
+        if (particle.type === 'lightning' || particle.type === 'bolt') {
+            // Draw lightning as jagged shapes
+            ctx.beginPath();
+            const points = 6;
+            for (let i = 0; i < points; i++) {
+                const angle = (i / points) * Math.PI * 2;
+                const radius = size + (Math.random() - 0.5) * size * 0.5;
+                const x = particle.x + Math.cos(angle) * radius;
+                const y = particle.y + Math.sin(angle) * radius;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.fill();
+        } else if (particle.type === 'ring' || particle.type === 'shockwave') {
+            // Draw rings as hollow circles
+            ctx.lineWidth = size / 3;
+            ctx.strokeStyle = `${particle.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
+            ctx.beginPath();
+            ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
+            ctx.stroke();
+        } else {
+            // Regular circular particles
             ctx.beginPath();
             ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
             ctx.fill();
-            ctx.shadowBlur = 0;
         }
+        
+        ctx.restore();
+        
+        // Reset shadow
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
     });
 }
 
@@ -1603,8 +2554,1038 @@ function drawRoomInfo() {
     }
 }
 
+// Pause and Inventory System
+function toggleInventory() {
+    gameState.isPaused = !gameState.isPaused;
+    const pauseBtn = document.getElementById('pause-btn');
+    const inventoryDialog = document.getElementById('inventoryDialog');
+    
+    if (gameState.isPaused) {
+        pauseBtn.textContent = '▶️ RESUME';
+        inventoryDialog.style.display = 'flex';
+        updateInventoryDisplay();
+        updateSuperPowerDisplay();
+    } else {
+        pauseBtn.textContent = '🎒 INVENTORY';
+        inventoryDialog.style.display = 'none';
+        // Restart the game loop when resuming
+        if (gameRunning) {
+            gameLoop();
+        }
+    }
+}
+
+function switchTab(tabName) {
+    // Update tab buttons
+    document.getElementById('powerupsTab').classList.remove('active');
+    document.getElementById('superpowersTab').classList.remove('active');
+    document.getElementById(tabName + 'Tab').classList.add('active');
+    
+    // Update tab content
+    document.getElementById('powerupsContent').classList.remove('active');
+    document.getElementById('superpowersContent').classList.remove('active');
+    document.getElementById(tabName + 'Content').classList.add('active');
+    
+    // Update displays
+    if (tabName === 'powerups') {
+        updateInventoryDisplay();
+    } else {
+        updateSuperPowerDisplay();
+    }
+}
+
+function checkLevelProgression() {
+    const newLevel = Math.floor(gameState.currentRoom / 25) + 1;
+    if (newLevel > gameState.currentLevel) {
+        gameState.currentLevel = newLevel;
+        checkSuperPowerUnlocks();
+    }
+}
+
+function checkSuperPowerUnlocks() {
+    const currentRoom = gameState.currentRoom + 1; // +1 because rooms are 0-indexed
+    superPowers.forEach(power => {
+        if (currentRoom >= power.unlockLevel && !gameState.superPowers.unlocked.includes(power.id)) {
+            gameState.superPowers.unlocked.push(power.id);
+            showSuperPowerUnlock(power);
+        }
+    });
+}
+
+function showSuperPowerUnlock(power) {
+    // Create unlock notification effect
+    console.log(`🎉 NEW SUPER POWER UNLOCKED: ${power.name} ${power.symbol}`);
+    // TODO: Add visual notification
+}
+
+function addToInventory(powerUpType, symbol, color, duration, healAmount = null, isSpecial = false) {
+    const key = powerUpType;
+    if (!gameState.inventory[key]) {
+        gameState.inventory[key] = {
+            type: powerUpType,
+            symbol: symbol,
+            color: color,
+            duration: duration,
+            healAmount: healAmount,
+            count: 0,
+            isSpecial: isSpecial
+        };
+    }
+    gameState.inventory[key].count++;
+    console.log(`Added ${powerUpType} to inventory. Count: ${gameState.inventory[key].count}`);
+}
+
+function updateInventoryDisplay() {
+    const inventoryGrid = document.getElementById('inventoryGrid');
+    inventoryGrid.innerHTML = '';
+    
+    const inventoryKeys = Object.keys(gameState.inventory);
+    
+    if (inventoryKeys.length === 0) {
+        inventoryGrid.innerHTML = '<div class="empty-inventory">Your inventory is empty. Collect power-ups to fill it!</div>';
+        return;
+    }
+    
+    inventoryKeys.forEach(key => {
+        const item = gameState.inventory[key];
+        if (item.count > 0) {
+            const itemElement = document.createElement('div');
+            itemElement.className = 'inventory-item';
+            itemElement.style.borderColor = item.color;
+            
+            itemElement.innerHTML = `
+                <div class="symbol">${item.symbol}</div>
+                <div class="name">${item.type.charAt(0).toUpperCase() + item.type.slice(1)}</div>
+                <div class="count">${item.count}</div>
+            `;
+            
+            itemElement.addEventListener('click', () => activateFromInventory(key));
+            inventoryGrid.appendChild(itemElement);
+        }
+    });
+}
+
+function activateFromInventory(itemKey) {
+    const item = gameState.inventory[itemKey];
+    if (!item || item.count <= 0) return;
+    
+    // Activate the power-up
+    if (item.healAmount) {
+        // It's a food item
+        player.health = Math.min(player.maxHealth, player.health + item.healAmount);
+        console.log(`Used ${item.type} from inventory! Healed ${item.healAmount} HP. Current health: ${player.health}/${player.maxHealth}`);
+    } else if (item.isSpecial && item.type === 'lightning') {
+        // Special lightning power - unlock it permanently
+        gameState.hasLightningPower = true;
+        const lightningBtn = document.getElementById('lightning-btn');
+        lightningBtn.style.display = 'inline-block';
+        touchLightningBtn.style.display = 'flex';
+        console.log('Lightning Storm power unlocked permanently!');
+    } else {
+        // It's a regular power-up
+        if (item.type === 'doubleDamage') {
+            gameState.powerUps.damage = item.duration;
+        } else if (item.type === 'invincibility') {
+            gameState.powerUps.shield = item.duration;
+            player.invincible = true;
+            setTimeout(() => { player.invincible = false; }, item.duration);
+        } else if (item.type === 'megaSpeed') {
+            gameState.powerUps.speed = item.duration;
+        } else {
+            gameState.powerUps[item.type] = item.duration;
+        }
+        console.log(`Activated ${item.type} from inventory!`);
+    }
+    
+    // Remove one from inventory
+    item.count--;
+    if (item.count <= 0) {
+        delete gameState.inventory[itemKey];
+    }
+    
+    // Create effect
+    createPowerUpEffect(player.x, player.y, item.color);
+    
+    // Update display
+    updateInventoryDisplay();
+    
+    // Automatically resume game after using power-up
+    toggleInventory();
+}
+
+function updateSuperPowerDisplay() {
+    const superpowerGrid = document.getElementById('superpowerGrid');
+    superpowerGrid.innerHTML = '';
+    
+    superPowers.forEach(power => {
+        const isUnlocked = gameState.superPowers.unlocked.includes(power.id);
+        const currentRoom = gameState.currentRoom + 1;
+        
+        const powerElement = document.createElement('div');
+        powerElement.className = `superpower-item ${isUnlocked ? '' : 'locked'}`;
+        powerElement.dataset.powerId = power.id;
+        
+        powerElement.innerHTML = `
+            <div class="symbol">${power.symbol}</div>
+            <div class="name">${power.name}</div>
+            <div class="unlock-level">${isUnlocked ? 'UNLOCKED' : `Lvl ${power.unlockLevel}`}</div>
+        `;
+        
+        if (isUnlocked) {
+            powerElement.addEventListener('click', () => equipSuperPower(power.id));
+            powerElement.title = power.description;
+        } else {
+            powerElement.title = `Unlocks at room ${power.unlockLevel}. Current: ${currentRoom}`;
+        }
+        
+        superpowerGrid.appendChild(powerElement);
+    });
+    
+    // Update equipped slots
+    updateEquippedSlots();
+}
+
+function updateEquippedSlots() {
+    for (let i = 0; i < 3; i++) {
+        const slot = document.querySelector(`.power-slot[data-slot="${i}"]`);
+        const equippedPowerId = gameState.superPowers.equipped[i];
+        
+        if (equippedPowerId) {
+            const power = superPowers.find(p => p.id === equippedPowerId);
+            slot.classList.add('occupied');
+            slot.querySelector('.slot-content').innerHTML = `
+                <span style="font-size: 18px;">${power.symbol}</span> ${power.name}
+            `;
+            slot.onclick = () => unequipSuperPower(i);
+        } else {
+            slot.classList.remove('occupied');
+            slot.querySelector('.slot-content').textContent = 'Empty';
+            slot.onclick = null;
+        }
+    }
+    
+    // Update UI buttons
+    updateSuperPowerButtons();
+}
+
+function equipSuperPower(powerId) {
+    // Find first empty slot
+    const emptySlot = gameState.superPowers.equipped.findIndex(slot => slot === null);
+    
+    if (emptySlot !== -1) {
+        // Check if power is already equipped
+        if (!gameState.superPowers.equipped.includes(powerId)) {
+            gameState.superPowers.equipped[emptySlot] = powerId;
+            updateEquippedSlots();
+            updateSuperPowerButtons(); // Update iPad controls and UI buttons
+            console.log(`Equipped ${powerId} to slot ${emptySlot + 1}`);
+        } else {
+            console.log(`${powerId} is already equipped!`);
+        }
+    } else {
+        console.log('All slots are full! Remove a power first.');
+    }
+}
+
+function unequipSuperPower(slotIndex) {
+    const powerId = gameState.superPowers.equipped[slotIndex];
+    if (powerId) {
+        gameState.superPowers.equipped[slotIndex] = null;
+        updateEquippedSlots();
+        updateSuperPowerButtons(); // Update iPad controls and UI buttons
+        console.log(`Unequipped ${powerId} from slot ${slotIndex + 1}`);
+    }
+}
+
+function updateSuperPowerButtons() {
+    for (let i = 0; i < 3; i++) {
+        const powerId = gameState.superPowers.equipped[i];
+        const desktopBtn = document.getElementById(`superpower${i + 1}-btn`);
+        const touchBtn = document.getElementById(`touch-superpower${i + 1}-btn`);
+        
+        if (powerId) {
+            const power = superPowers.find(p => p.id === powerId);
+            desktopBtn.textContent = power.symbol;
+            desktopBtn.title = power.name + ': ' + power.description;
+            desktopBtn.style.display = 'inline-block';
+            
+            touchBtn.textContent = power.symbol;
+            touchBtn.title = power.name;
+            touchBtn.style.display = 'flex';
+            
+            // Update selection state for touch buttons
+            const isSelected = selectedPower === `superpower${i + 1}`;
+            touchBtn.className = `touch-power-btn ${isSelected ? 'selected' : ''}`;
+        } else {
+            desktopBtn.style.display = 'none';
+            touchBtn.style.display = 'none';
+        }
+    }
+}
+
+function useSuperPower(slotIndex) {
+    const powerId = gameState.superPowers.equipped[slotIndex];
+    if (!powerId) return;
+    
+    const power = superPowers.find(p => p.id === powerId);
+    console.log(`Using super power: ${power.name} ${power.symbol}`);
+    
+    // Execute the super power effect
+    executeSuperPower(powerId);
+}
+
+function executeSuperPower(powerId) {
+    switch(powerId) {
+        case 'ice':
+            // Ice beam - same as shootIce()
+            if (powers.ice.cooldown <= 0) {
+                shootIce();
+            }
+            break;
+        case 'fire':
+            // Fire beam - same as shootFire()
+            if (powers.fire.cooldown <= 0) {
+                shootFire();
+            }
+            break;
+        case 'combined':
+            // Combined beam - same as shootCombined()
+            if (powers.combined.cooldown <= 0) {
+                shootCombined();
+            }
+            break;
+        case 'teleport':
+            // Teleport to mouse position
+            const oldX = player.x;
+            const oldY = player.y;
+            player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.mouseX));
+            player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.mouseY));
+            
+            // Create teleport effect at old and new positions
+            createTeleportEffect(oldX, oldY, player.x, player.y);
+            break;
+        case 'timeSlow':
+            // Slow down all enemies for 10 seconds
+            enemies.forEach(enemy => {
+                enemy.originalSpeed = enemy.originalSpeed || enemy.speed;
+                enemy.speed = enemy.originalSpeed * 0.3;
+            });
+            setTimeout(() => {
+                enemies.forEach(enemy => {
+                    if (enemy.originalSpeed) {
+                        enemy.speed = enemy.originalSpeed;
+                    }
+                });
+            }, 10000);
+            
+            // Create time slow effect
+            createTimeSlowEffect();
+            break;
+        case 'shield':
+            // Energy shield for 15 seconds
+            gameState.powerUps.shield = 15000;
+            player.invincible = true;
+            setTimeout(() => { player.invincible = false; }, 15000);
+            
+            // Create shield effect
+            createShieldEffect();
+            break;
+        case 'multiShot':
+            // Shoots 8 projectiles in all directions
+            for (let i = 0; i < 8; i++) {
+                const angle = (i * Math.PI * 2) / 8;
+                createMultiShotProjectile(angle);
+            }
+            break;
+        case 'heal':
+            // Full heal
+            player.health = player.maxHealth;
+            
+            // Create heal effect
+            createHealEffect();
+            break;
+        case 'freeze':
+            // Freeze all enemies for 8 seconds
+            enemies.forEach(enemy => {
+                enemy.frozen = true;
+                enemy.originalSpeed = enemy.originalSpeed || enemy.speed;
+                enemy.speed = 0;
+            });
+            setTimeout(() => {
+                enemies.forEach(enemy => {
+                    enemy.frozen = false;
+                    if (enemy.originalSpeed) {
+                        enemy.speed = enemy.originalSpeed;
+                    }
+                });
+            }, 8000);
+            
+            // Create freeze effect
+            createFreezeEffect();
+            break;
+        case 'explosion':
+            // Nova blast around player
+            createNovaBlast();
+            break;
+        case 'ghost':
+            // Ghost mode for 12 seconds
+            player.ghostMode = true;
+            setTimeout(() => { player.ghostMode = false; }, 12000);
+            
+            // Create ghost effect
+            createGhostEffect();
+            break;
+        case 'magnet':
+            // Item magnet for 20 seconds
+            player.magnetMode = true;
+            setTimeout(() => { player.magnetMode = false; }, 20000);
+            createMagnetEffect();
+            break;
+        case 'clone':
+            // Create shadow clones
+            createShadowClones();
+            break;
+        case 'lightning':
+            // Chain lightning attack
+            createChainLightning();
+            break;
+        case 'meteor':
+            // Meteor storm
+            createMeteorStorm();
+            break;
+        case 'void':
+            // Void portal
+            createVoidPortal();
+            break;
+        case 'phoenix':
+            // Phoenix form for 15 seconds
+            player.phoenixMode = true;
+            player.invincible = true;
+            setTimeout(() => { 
+                player.phoenixMode = false; 
+                player.invincible = false; 
+            }, 15000);
+            createPhoenixEffect();
+            break;
+        case 'timeBomb':
+            // Place time bomb
+            createTimeBomb();
+            break;
+        case 'laser':
+            // Death laser beam
+            createDeathLaser();
+            break;
+        case 'blackHole':
+            // Create black hole
+            createBlackHole();
+            break;
+        case 'godMode':
+            // God mode for 30 seconds
+            player.godMode = true;
+            player.invincible = true;
+            setTimeout(() => { 
+                player.godMode = false; 
+                player.invincible = false; 
+            }, 30000);
+            createGodModeEffect();
+            break;
+        case 'nuclear':
+            // Nuclear blast
+            createNuclearBlast();
+            break;
+        case 'reality':
+            // Reality warp - clear all enemies
+            createRealityWarp();
+            break;
+        default:
+            console.log(`Super power ${powerId} not implemented yet!`);
+    }
+}
+
+function createSuperPowerEffect(x, y, symbol) {
+    // Optimized spectacular effect - reduced from 60 to 25 particles
+    for (let i = 0; i < 25; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 30,
+            vy: (Math.random() - 0.5) * 30,
+            life: 150,
+            maxLife: 150,
+            color: '#FF6B6B',
+            size: Math.random() * 20 + 12, // Larger particles for better visual impact
+            type: 'superpower',
+            glow: true
+        });
+    }
+    
+    // Create center symbol effect
+    particles.push({
+        x: x,
+        y: y,
+        vx: 0,
+        vy: 0,
+        life: 60,
+        maxLife: 60,
+        color: '#FFFFFF',
+        size: 80,
+        type: 'supersymbol',
+        glow: true,
+        symbol: symbol
+    });
+}
+
+function createMultiShotProjectile(angle) {
+    const speed = 15;
+    const damage = 200;
+    
+    projectiles.push({
+        x: player.x,
+        y: player.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        type: 'multishot',
+        damage: damage,
+        color: '#FF6B6B',
+        size: 12,
+        life: 120,
+        trail: [],
+        rotation: 0
+    });
+}
+
+function createNovaBlast() {
+    // Damage all enemies within range
+    enemies.forEach(enemy => {
+        const dx = enemy.x - player.x;
+        const dy = enemy.y - player.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < 200) { // Nova blast range
+            enemy.health -= 1000; // MASSIVE damage to ensure kills
+            createHitEffect(enemy.x, enemy.y, '#FF6B6B', '#FFB6C1');
+        }
+    });
+    
+    // Create visual effect
+    for (let i = 0; i < 100; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 40,
+            vy: (Math.random() - 0.5) * 40,
+            life: 80,
+            maxLife: 80,
+            color: '#FF6B6B',
+            size: Math.random() * 20 + 10,
+            type: 'explosion',
+            glow: true
+        });
+    }
+}
+
+function createTeleportEffect(oldX, oldY, newX, newY) {
+    // Effect at old position
+    for (let i = 0; i < 30; i++) {
+        particles.push({
+            x: oldX,
+            y: oldY,
+            vx: (Math.random() - 0.5) * 20,
+            vy: (Math.random() - 0.5) * 20,
+            life: 60,
+            maxLife: 60,
+            color: '#9932CC',
+            size: Math.random() * 10 + 5,
+            type: 'teleport',
+            glow: true
+        });
+    }
+    
+    // Effect at new position
+    for (let i = 0; i < 30; i++) {
+        particles.push({
+            x: newX,
+            y: newY,
+            vx: (Math.random() - 0.5) * 20,
+            vy: (Math.random() - 0.5) * 20,
+            life: 60,
+            maxLife: 60,
+            color: '#9932CC',
+            size: Math.random() * 10 + 5,
+            type: 'teleport',
+            glow: true
+        });
+    }
+}
+
+function createTimeSlowEffect() {
+    // Optimized time slow effect - reduced from 50 to 20 particles
+    for (let i = 0; i < 20; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 15,
+            vy: (Math.random() - 0.5) * 15,
+            life: 100,
+            maxLife: 100,
+            color: '#FFD700',
+            size: Math.random() * 8 + 4,
+            type: 'timeslow',
+            glow: true
+        });
+    }
+}
+
+function createShieldEffect() {
+    for (let i = 0; i < 40; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 12,
+            vy: (Math.random() - 0.5) * 12,
+            life: 80,
+            maxLife: 80,
+            color: '#4169E1',
+            size: Math.random() * 12 + 6,
+            type: 'shield',
+            glow: true
+        });
+    }
+}
+
+function createHealEffect() {
+    for (let i = 0; i < 35; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 10,
+            vy: (Math.random() - 0.5) * 10,
+            life: 90,
+            maxLife: 90,
+            color: '#00FF00',
+            size: Math.random() * 10 + 5,
+            type: 'heal',
+            glow: true
+        });
+    }
+}
+
+function createFreezeEffect() {
+    // Optimized freeze effect - reduced from 60 to 25 particles
+    for (let i = 0; i < 25; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 25,
+            vy: (Math.random() - 0.5) * 25,
+            life: 100,
+            maxLife: 100,
+            color: '#87CEEB',
+            size: Math.random() * 12 + 6,
+            type: 'freeze',
+            glow: true
+        });
+    }
+}
+
+function createGhostEffect() {
+    for (let i = 0; i < 45; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 18,
+            vy: (Math.random() - 0.5) * 18,
+            life: 75,
+            maxLife: 75,
+            color: '#DDA0DD',
+            size: Math.random() * 14 + 7,
+            type: 'ghost',
+            glow: true
+        });
+    }
+}
+
+// Additional Super Power Functions
+function createMagnetEffect() {
+    for (let i = 0; i < 30; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 15,
+            vy: (Math.random() - 0.5) * 15,
+            life: 60,
+            maxLife: 60,
+            color: '#FFD700',
+            size: Math.random() * 10 + 5,
+            type: 'magnet',
+            glow: true
+        });
+    }
+}
+
+function createShadowClones() {
+    // Optimized shadow clones - reduced from 15 to 6 projectiles total
+    for (let i = 0; i < 3; i++) {
+        const angle = (i * Math.PI * 2) / 3;
+        const distance = 80;
+        const cloneX = player.x + Math.cos(angle) * distance;
+        const cloneY = player.y + Math.sin(angle) * distance;
+        
+        // Create clone projectiles - reduced from 5 to 2 per clone
+        for (let j = 0; j < 2; j++) {
+            setTimeout(() => {
+                // Only create projectile if we're under projectile limit
+                if (projectiles.length < 50) {
+                    const targetAngle = Math.atan2(player.mouseY - cloneY, player.mouseX - cloneX);
+                    const speed = 15;
+                    projectiles.push({
+                        x: cloneX,
+                        y: cloneY,
+                        vx: Math.cos(targetAngle) * speed,
+                        vy: Math.sin(targetAngle) * speed,
+                        type: 'clone',
+                        damage: 200, // Increased damage to compensate
+                        color: '#9932CC',
+                        size: 12, // Slightly larger
+                        life: 120,
+                        trail: [],
+                        rotation: 0
+                    });
+                }
+            }, j * 300); // Longer delay between shots
+        }
+    }
+    
+    // Visual effect
+    createSuperPowerEffect(player.x, player.y, '👥');
+}
+
+function createChainLightning() {
+    // Chain lightning that jumps between enemies
+    if (enemies.length === 0) return;
+    
+    let currentEnemy = enemies[0];
+    let chainCount = 0;
+    const maxChains = Math.min(enemies.length, 8);
+    
+    const chainLightning = () => {
+        if (chainCount >= maxChains || !currentEnemy) return;
+        
+        // Damage current enemy - MASSIVE damage to ensure kills
+        currentEnemy.health -= 500;
+        createHitEffect(currentEnemy.x, currentEnemy.y, '#FFFF00', '#FFFFFF');
+        
+        // Find next enemy
+        let nextEnemy = null;
+        let closestDistance = Infinity;
+        
+        enemies.forEach(enemy => {
+            if (enemy !== currentEnemy) {
+                const dx = enemy.x - currentEnemy.x;
+                const dy = enemy.y - currentEnemy.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    nextEnemy = enemy;
+                }
+            }
+        });
+        
+        chainCount++;
+        if (nextEnemy && chainCount < maxChains) {
+            currentEnemy = nextEnemy;
+            setTimeout(chainLightning, 100);
+        }
+    };
+    
+    chainLightning();
+    createLightningEffect(player.x, player.y);
+}
+
+function createMeteorStorm() {
+    // Optimized meteor rain - reduced from 12 to 6 meteors
+    for (let i = 0; i < 6; i++) {
+        setTimeout(() => {
+            // Only create meteor if under projectile limit
+            if (projectiles.length < MAX_PROJECTILES - 10) {
+                const meteorX = Math.random() * canvas.width;
+                const meteorY = -50;
+                
+                projectiles.push({
+                    x: meteorX,
+                    y: meteorY,
+                    vx: (Math.random() - 0.5) * 4,
+                    vy: 12,
+                    type: 'meteor',
+                    damage: 750, // Increased damage to compensate
+                    color: '#FF4500',
+                    size: 25, // Larger meteors for better impact
+                    life: 200,
+                    trail: [],
+                    rotation: 0
+                });
+            }
+        }, i * 200); // Slightly longer delay
+    }
+    
+    createSuperPowerEffect(player.x, player.y, '☄️');
+}
+
+function createVoidPortal() {
+    // Create a void portal that sucks in enemies
+    const portalX = player.mouseX;
+    const portalY = player.mouseY;
+    
+    // Optimized portal effect - reduced from 60 to 25 particles
+    for (let i = 0; i < 25; i++) {
+        particles.push({
+            x: portalX,
+            y: portalY,
+            vx: (Math.random() - 0.5) * 20,
+            vy: (Math.random() - 0.5) * 20,
+            life: 120,
+            maxLife: 120,
+            color: '#4B0082',
+            size: Math.random() * 15 + 10,
+            type: 'void',
+            glow: true
+        });
+    }
+    
+    // Damage all enemies within range
+    enemies.forEach(enemy => {
+        const dx = enemy.x - portalX;
+        const dy = enemy.y - portalY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < 150) {
+            enemy.health -= 1000; // MASSIVE damage to ensure kills
+            createHitEffect(enemy.x, enemy.y, '#4B0082', '#9932CC');
+        }
+    });
+    
+    addScreenShake(10, 400);
+}
+
+function createPhoenixEffect() {
+    // Optimized phoenix effect - reduced from 80 to 30 particles
+    for (let i = 0; i < 30; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 25,
+            vy: (Math.random() - 0.5) * 25,
+            life: 100,
+            maxLife: 100,
+            color: Math.random() > 0.5 ? '#FF4500' : '#FFD700',
+            size: Math.random() * 18 + 12,
+            type: 'phoenix',
+            glow: true
+        });
+    }
+}
+
+function createTimeBomb() {
+    const bombX = player.mouseX;
+    const bombY = player.mouseY;
+    
+    // Create bomb visual
+    particles.push({
+        x: bombX,
+        y: bombY,
+        vx: 0,
+        vy: 0,
+        life: 300, // 5 seconds
+        maxLife: 300,
+        color: '#FF0000',
+        size: 25,
+        type: 'timebomb',
+        glow: true
+    });
+    
+    // Explode after 5 seconds
+    setTimeout(() => {
+        // Damage all enemies in range
+        enemies.forEach(enemy => {
+            const dx = enemy.x - bombX;
+            const dy = enemy.y - bombY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < 200) {
+                enemy.health -= 1000; // MASSIVE damage to ensure kills
+                createHitEffect(enemy.x, enemy.y, '#FF0000', '#FFFFFF');
+            }
+        });
+        
+        // Explosion effect
+        for (let i = 0; i < 100; i++) {
+            particles.push({
+                x: bombX,
+                y: bombY,
+                vx: (Math.random() - 0.5) * 40,
+                vy: (Math.random() - 0.5) * 40,
+                life: 80,
+                maxLife: 80,
+                color: '#FF0000',
+                size: Math.random() * 20 + 10,
+                type: 'explosion',
+                glow: true
+            });
+        }
+        
+        addScreenShake(15, 500);
+        addScreenFlash('#FF0000', 0.6, 300);
+    }, 5000);
+}
+
+function createDeathLaser() {
+    // Single powerful red laser beam - no projectiles, just visual effect
+    const angle = Math.atan2(player.mouseY - player.y, player.mouseX - player.x);
+    const laserLength = 800;
+    const laserEndX = player.x + Math.cos(angle) * laserLength;
+    const laserEndY = player.y + Math.sin(angle) * laserLength;
+    
+    // Instantly damage all enemies in the laser path
+    enemies.forEach((enemy, index) => {
+        // Check if enemy is in laser path using line-circle collision
+        const dx = enemy.x - player.x;
+        const dy = enemy.y - player.y;
+        const projLength = dx * Math.cos(angle) + dy * Math.sin(angle);
+        
+        if (projLength > 0 && projLength < laserLength) {
+            const perpX = dx - projLength * Math.cos(angle);
+            const perpY = dy - projLength * Math.sin(angle);
+            const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
+            
+            if (perpDist < 30) { // Laser width
+                enemy.health -= 1000; // Instant kill
+                createHitEffect(enemy.x, enemy.y, '#FF0000', '#FFFFFF');
+            }
+        }
+    });
+    
+    // Create laser visual effect that draws directly
+    player.laserBeam = {
+        startX: player.x,
+        startY: player.y,
+        endX: laserEndX,
+        endY: laserEndY,
+        life: 30,
+        maxLife: 30,
+        width: 25
+    };
+    
+    addScreenFlash('#FF0000', 0.6, 300);
+    addScreenShake(10, 400);
+}
+
+function createBlackHole() {
+    const holeX = player.mouseX;
+    const holeY = player.mouseY;
+    
+    // Destroy all enemies - Set to negative to ensure death
+    enemies.forEach(enemy => {
+        enemy.health = -1000;
+        createHitEffect(enemy.x, enemy.y, '#000000', '#FFFFFF');
+    });
+    
+    // Optimized visual effect - reduced from 150 to 40 particles
+    for (let i = 0; i < 40; i++) {
+        particles.push({
+            x: holeX,
+            y: holeY,
+            vx: (Math.random() - 0.5) * 30,
+            vy: (Math.random() - 0.5) * 30,
+            life: 120,
+            maxLife: 120,
+            color: '#000000',
+            size: Math.random() * 35 + 20, // Larger particles for better impact
+            type: 'blackhole',
+            glow: true
+        });
+    }
+    
+    addScreenShake(20, 600);
+    addScreenFlash('#000000', 0.8, 400);
+}
+
+function createGodModeEffect() {
+    for (let i = 0; i < 100; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 30,
+            vy: (Math.random() - 0.5) * 30,
+            life: 150,
+            maxLife: 150,
+            color: '#FFD700',
+            size: Math.random() * 20 + 15,
+            type: 'godmode',
+            glow: true
+        });
+    }
+}
+
+function createNuclearBlast() {
+    // Screen-clearing nuclear explosion - Set to negative to ensure death
+    enemies.forEach(enemy => {
+        enemy.health = -1000;
+        createHitEffect(enemy.x, enemy.y, '#00FF00', '#FFFFFF');
+    });
+    
+    // Massive visual effect
+    for (let i = 0; i < 200; i++) {
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: (Math.random() - 0.5) * 50,
+            vy: (Math.random() - 0.5) * 50,
+            life: 180,
+            maxLife: 180,
+            color: Math.random() > 0.5 ? '#00FF00' : '#FFFF00',
+            size: Math.random() * 30 + 20,
+            type: 'nuclear',
+            glow: true
+        });
+    }
+    
+    addScreenShake(25, 800);
+    addScreenFlash('#00FF00', 1.0, 500);
+}
+
+function createRealityWarp() {
+    // Instant room clear - Set to negative to ensure death
+    enemies.forEach(enemy => {
+        enemy.health = -1000;
+        createHitEffect(enemy.x, enemy.y, '#FF69B4', '#FFFFFF');
+    });
+    
+    // Rainbow effect
+    for (let i = 0; i < 150; i++) {
+        const colors = ['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3'];
+        particles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 20,
+            vy: (Math.random() - 0.5) * 20,
+            life: 120,
+            maxLife: 120,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: Math.random() * 25 + 10,
+            type: 'reality',
+            glow: true
+        });
+    }
+    
+    addScreenFlash('#FFFFFF', 0.8, 300);
+}
+
 function gameLoop() {
-    if (!gameRunning) return;
+    if (!gameRunning || gameState.isPaused) return;
+    
+    // Apply screen effects (like shake)
+    ctx.save();
+    applyScreenEffects();
     
     // Clear canvas with appropriate background
     if (gameState.inBossArena) {
@@ -1631,8 +3612,8 @@ function gameLoop() {
         ctx.fillStyle = room.background;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
-        // Add room-specific particle effects
-        if (Math.random() < 0.15) {
+        // Add enhanced room-specific particle effects
+        if (Math.random() < 0.2) {
             particles.push({
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
@@ -1642,13 +3623,22 @@ function gameLoop() {
                 maxLife: 80,
                 color: room.particle,
                 size: Math.random() * 6 + 3,
-                type: 'ambient'
+                type: 'ambient',
+                glow: true
             });
         }
         
-        // Spawn power-ups randomly (not in boss arena)
-        if (Math.random() < 0.005 && powerUps.length < 3) {
-            createPowerUp();
+        // Create room-specific floating effects
+        createRoomSpecificEffects(room);
+        
+        // Spawn power-ups and food randomly (not in boss arena)
+        if (Math.random() < 0.008 && powerUps.length < 4) {
+            // 70% chance for food, 30% chance for power-up
+            if (Math.random() < 0.7) {
+                createFoodItem();
+            } else {
+                createPowerUp();
+            }
         }
     }
     
@@ -1661,6 +3651,10 @@ function gameLoop() {
     updatePowerUps();
     updatePowers();
     
+    // Update background effects
+    updateBackgroundEffects();
+    updateBackgroundParticles();
+    
     // Boss arena logic or regular room logic
     if (gameState.inBossArena) {
         updateBossArena();
@@ -1668,7 +3662,11 @@ function gameLoop() {
         checkRoomTransitions();
     }
     
-    // Draw everything
+    // Draw everything with enhanced layering
+    // Background effects layer
+    drawBackgroundEffects();
+    drawBackgroundParticles();
+    
     if (!gameState.inBossArena) {
         drawPassages();
     }
@@ -1679,6 +3677,10 @@ function gameLoop() {
     drawParticles();
     drawPlayer();
     drawRoomInfo();
+    
+    // Restore canvas state and render screen effects
+    ctx.restore();
+    renderScreenEffects();
     
     // Check power upgrade countdown
     if (gameState.powerUpgradeTimer !== null) {
@@ -1832,7 +3834,9 @@ function startGame() {
     gameContainer.style.display = 'block';
     
     if (!gameInitialized) {
+        initializeBackgroundEffects(); // Initialize background effects
         loadRoom(0);
+        updateSuperPowerButtons(); // Show default super powers
         gameInitialized = true;
     } else {
         restartGame();
@@ -1879,8 +3883,25 @@ function restartGame() {
             combined: 0
         },
         powerUpgradeTimer: null,
-        selectedUpgradePower: null
+        selectedUpgradePower: null,
+        isPaused: false,
+        inventory: {},
+        superPowers: {
+            unlocked: ['ice', 'fire', 'combined'],
+            equipped: ['ice', 'fire', 'combined']
+        },
+        currentLevel: 1
     };
+    
+    // Reset background effects
+    backgroundParticles = [];
+    backgroundAnimation = {
+        time: 0,
+        stars: [],
+        floatingOrbs: [],
+        roomEffects: []
+    };
+    initializeBackgroundEffects();
     
     // Reset player
     player.x = 400;
@@ -1911,4 +3932,11 @@ function restartGame() {
     
     // Update UI
     keyCountElement.textContent = '0';
+    
+    // Update super power buttons
+    updateSuperPowerButtons();
+    
+    // Reset pause button and close inventory
+    document.getElementById('pause-btn').textContent = '🎒 INVENTORY';
+    document.getElementById('inventoryDialog').style.display = 'none';
 }
