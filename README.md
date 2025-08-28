@@ -1,6 +1,6 @@
 # 🎮 Outdoor Adventure - Skeleton Key Quest
 
-A massive 33-room adventure game with touch controls for iPad and mobile devices!
+A massive 1000-room adventure game with touch controls for iPad and mobile devices!
 
 ## 🚀 Play Online
 
@@ -70,3 +70,4 @@ Collect all 1000 skeleton keys by exploring rooms and defeating enemies! Each ro
 ---
 
 **Made with ❤️ for iPad gaming!**
+
